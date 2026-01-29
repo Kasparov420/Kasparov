@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "routes": [
+    { "src": "^/api/(?<route>.*)$", "dest": "/api/$route", "continue": false },
+    { "src": "^/assets/.*$", "dest": "/assets/$0", "continue": false },
+    { "src": "^/(?!api).*$", "dest": "/index.html", "status": 200 }
+  ]
+}
