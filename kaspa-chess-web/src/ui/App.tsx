@@ -167,7 +167,19 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ whiteName: session.address.slice(0, 10) }),
       });
-      const { game } = await res.json();
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Create game error:", res.status, errorText);
+        setStatus(`✗ Failed to create game (${res.status})`);
+        return;
+      }
+      const data = await res.json();
+      const { game } = data;
+      if (!game) {
+        console.error("No game in response:", data);
+        setStatus("✗ Invalid response from server");
+        return;
+      }
       const newGame: GameData = {
         id: game.id,
         creator: session.address,
@@ -185,7 +197,8 @@ export default function App() {
       setGameState("waiting");
       setStatus(`✓ Game created! ID: ${game.id.slice(0, 8)}`);
     } catch (e) {
-      setStatus(`✗ Failed to create game`);
+      console.error("Create game exception:", e);
+      setStatus(`✗ Failed to create game: ${e instanceof Error ? e.message : "unknown error"}`);
     }
   }
 
@@ -207,8 +220,19 @@ export default function App() {
           blackName: session.address.slice(0, 10),
         }),
       });
-      if (!res.ok) throw new Error("Game not found");
-      const { game: apiGame } = await res.json();
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Join game error:", res.status, errorText);
+        setStatus(`✗ Game not found (${res.status})`);
+        return;
+      }
+      const data = await res.json();
+      const { game: apiGame } = data;
+      if (!apiGame) {
+        console.error("No game in response:", data);
+        setStatus("✗ Invalid response from server");
+        return;
+      }
       const foundGame: GameData = {
         id: apiGame.id,
         creator: apiGame.whiteName,
@@ -227,7 +251,8 @@ export default function App() {
       setGameIdToJoin("");
       setStatus("✓ Joined!");
     } catch (e) {
-      setStatus(`✗ Failed to join game`);
+      console.error("Join game exception:", e);
+      setStatus(`✗ Failed to join game: ${e instanceof Error ? e.message : "unknown error"}`);
     }
   }
 
@@ -251,8 +276,23 @@ export default function App() {
           txid: undefined,
         }),
       });
-      if (!res.ok) throw new Error("Move failed");
-      const { game: apiGame } = await res.json();
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Move error:", res.status, errorText);
+        chess.undo();
+        setFen(chess.fen());
+        setStatus(`✗ Move failed (${res.status})`);
+        return false;
+      }
+      const data = await res.json();
+      const { game: apiGame } = data;
+      if (!apiGame) {
+        console.error("No game in response:", data);
+        chess.undo();
+        setFen(chess.fen());
+        setStatus("✗ Invalid response from server");
+        return false;
+      }
 
       const addedTime = game.increment * 1000;
       const newGame: GameData = {
@@ -267,9 +307,10 @@ export default function App() {
       setFen(apiGame.fen);
       setStatus(`✓ ${move.san}`);
     } catch (e) {
+      console.error("Move exception:", e);
       chess.undo();
       setFen(chess.fen());
-      setStatus(`✗ Move failed`);
+      setStatus(`✗ Move failed: ${e instanceof Error ? e.message : "unknown error"}`);
       return false;
     }
 
