@@ -1,0 +1,272 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Chess } from 'chess.js'
+import { api, type Game } from './api'
+
+type WsMsg =
+  | { type: 'game'; game: Game }
+  | { type: 'ping' }
+
+function formatSompi(s?: string) {
+  if (!s) return '—'
+  const n = BigInt(s)
+  const kas = Number(n) / 100_000_000
+  return kas.toFixed(4) + ' KAS'
+}
+
+export default function App() {
+  const [err, setErr] = useState<string | null>(null)
+  const [game, setGame] = useState<Game | null>(null)
+  const [localId, setLocalId] = useState<string>('')
+  const [whiteName, setWhiteName] = useState('White')
+  const [blackName, setBlackName] = useState('Black')
+  const [allowStakes, setAllowStakes] = useState(false)
+  const [stakeKas, setStakeKas] = useState('0.1')
+  const [drawOffered, setDrawOffered] = useState(false)
+  const wsRef = useRef<WebSocket | null>(null)
+
+  const chess = useMemo(() => {
+    const c = new Chess()
+    if (game?.fen) c.load(game.fen)
+    return c
+  }, [game?.fen])
+
+  async function create() {
+    setErr(null)
+    const sompi = allowStakes ? String(Math.floor(Number(stakeKas) * 100_000_000)) : undefined
+    const res = await api.createGame({ whiteName, allowStakes, stakeSompi: sompi }).catch(e => { throw new Error(String(e?.message || e)) })
+    setGame(res.game)
+    setLocalId(res.game.id)
+  }
+
+  async function join() {
+    setErr(null)
+    if (!localId) return
+    const res = await api.joinGame(localId, { blackName }).catch(e => { throw new Error(String(e?.message || e)) })
+    setGame(res.game)
+  }
+
+  async function refresh() {
+    setErr(null)
+    if (!localId) return
+    const res = await api.getGame(localId).catch(e => { throw new Error(String(e?.message || e)) })
+    setGame(res.game)
+  }
+
+  function connectWs(id: string) {
+    if (wsRef.current) wsRef.current.close()
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+    const ws = new WebSocket(`${proto}://${location.host}/ws?game=${encodeURIComponent(id)}`)
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data) as WsMsg
+        if (msg.type === 'game') setGame(msg.game)
+      } catch {}
+    }
+    wsRef.current = ws
+  }
+
+  useEffect(() => {
+    if (!localId) return
+    connectWs(localId)
+    return () => wsRef.current?.close()
+  }, [localId])
+
+  async function submitUci(uci: string) {
+    if (!game) return
+    setErr(null)
+    const prevTxid = game.lastMoveTxid
+    const res = await api.move(game.id, { uci, prevTxid }).catch(e => { throw new Error(String(e?.message || e)) })
+    setGame(res.game)
+  }
+
+  function onDrop(from: string, to: string) {
+    if (!game) return
+    if (game.status !== 'ACTIVE') return
+    if (game.result) return
+    const move = chess.move({ from, to, promotion: 'q' })
+    if (!move) return
+    const uci = `${move.from}${move.to}${move.promotion ?? ''}`
+    submitUci(uci).catch(e => setErr(String(e.message || e)))
+  }
+
+  const boardSquares = useMemo(() => {
+    // build a simple piece placement for a minimal board UI fallback
+    // (we're not using a heavy chessboard dependency intentionally)
+    const fen = game?.fen || 'start'
+    const c = new Chess()
+    if (fen !== 'start') c.load(fen)
+    const board = c.board()
+    const map: Record<string, string> = {}
+    const files = 'abcdefgh'
+    for (let r = 0; r < 8; r++) {
+      for (let f = 0; f < 8; f++) {
+        const piece = board[r][f]
+        if (!piece) continue
+        const sq = files[f] + String(8 - r)
+        const key = piece.color + piece.type
+        map[sq] = key
+      }
+    }
+    return map
+  }, [game?.fen])
+
+  const pieceGlyph: Record<string, string> = {
+    wp: '♙', wn: '♘', wb: '♗', wr: '♖', wq: '♕', wk: '♔',
+    bp: '♟', bn: '♞', bb: '♝', br: '♜', bq: '♛', bk: '♚',
+  }
+
+  function Square({ sq, dark }: { sq: string, dark: boolean }) {
+    const glyph = pieceGlyph[boardSquares[sq]] || ''
+    return (
+      <button
+        className="sq"
+        data-sq={sq}
+        style={{
+          background: dark ? '#0b1220' : '#111827',
+          border: '1px solid #1f2a37',
+          height: 54,
+          width: 54,
+          borderRadius: 10,
+          display: 'grid',
+          placeItems: 'center',
+          cursor: 'pointer'
+        }}
+        onClick={() => handleSquareClick(sq)}
+        title={sq}
+      >
+        <span style={{ fontSize: 26, lineHeight: 1 }}>{glyph}</span>
+      </button>
+    )
+  }
+
+  const [pick, setPick] = useState<string | null>(null)
+  function handleSquareClick(sq: string) {
+    if (!game || game.status !== 'ACTIVE' || game.result) return
+    if (!pick) { setPick(sq); return }
+    const from = pick
+    const to = sq
+    setPick(null)
+    onDrop(from, to)
+  }
+
+  async function resign() {
+    if (!game) return
+    setErr(null)
+    const res = await api.resign(game.id).catch(e => { throw new Error(String(e?.message || e)) })
+    setGame(res.game)
+  }
+
+  async function offerDraw() {
+    if (!game) return
+    setErr(null)
+    const res = await api.offerDraw(game.id).catch(e => { throw new Error(String(e?.message || e)) })
+    setDrawOffered(true)
+    setGame(res.game)
+  }
+
+  async function acceptDraw() {
+    if (!game) return
+    setErr(null)
+    const res = await api.acceptDraw(game.id).catch(e => { throw new Error(String(e?.message || e)) })
+    setGame(res.game)
+  }
+
+  return (
+    <div className="container">
+      <div className="row">
+        <div className="card">
+          <div className="h1">Kaspa Chess (Web)</div>
+          <div className="muted">
+            This build is a functional chess website with lobby + real move legality.
+            Kaspa on-chain logging + trustless staking is not enabled here.
+          </div>
+
+          <div className="sep" />
+
+          <div className="h2">Create game</div>
+          <div className="grid">
+            <input value={whiteName} onChange={e => setWhiteName(e.target.value)} placeholder="White name" />
+            <label className="muted">
+              <input type="checkbox" checked={allowStakes} onChange={e => setAllowStakes(e.target.checked)} /> enable stake UI (no on-chain settlement)
+            </label>
+            <input value={stakeKas} onChange={e => setStakeKas(e.target.value)} placeholder="Stake (KAS)" disabled={!allowStakes} />
+            <button className="btn primary" onClick={() => create().catch(e => setErr(String(e.message || e)))}>Create</button>
+          </div>
+
+          <div className="sep" />
+
+          <div className="h2">Join / Load game</div>
+          <div className="grid">
+            <input value={localId} onChange={e => setLocalId(e.target.value)} placeholder="Game ID" />
+            <input value={blackName} onChange={e => setBlackName(e.target.value)} placeholder="Black name" />
+            <div style={{display:'flex', gap: 10}}>
+              <button className="btn" onClick={() => join().catch(e => setErr(String(e.message || e)))}>Join</button>
+              <button className="btn" onClick={() => refresh().catch(e => setErr(String(e.message || e)))}>Refresh</button>
+            </div>
+          </div>
+
+          {err && <div className="err" style={{marginTop: 10}}>{err}</div>}
+
+          <div className="sep" />
+
+          <div className="h2">Game info</div>
+          <div className="kv">
+            <div className="k">id</div><div>{game?.id || '—'}</div>
+            <div className="k">status</div><div><span className="badge">{game?.status || '—'}</span></div>
+            <div className="k">turn</div><div>{game?.turn || '—'}</div>
+            <div className="k">stake</div><div>{formatSompi(game?.stakeSompi)}</div>
+            <div className="k">white</div><div>{game?.whiteName || '—'}</div>
+            <div className="k">black</div><div>{game?.blackName || '—'}</div>
+            <div className="k">result</div><div>{game?.result ? `${game.result.type}: ${game.result.reason}` : '—'}</div>
+          </div>
+
+          <div className="sep" />
+
+          <div style={{display:'flex', gap: 10}}>
+            <button className="btn danger" disabled={!game || game.status !== 'ACTIVE' || !!game.result} onClick={() => resign().catch(e => setErr(String(e.message || e)))}>Resign</button>
+            <button className="btn" disabled={!game || game.status !== 'ACTIVE' || !!game.result} onClick={() => offerDraw().catch(e => setErr(String(e.message || e)))}>Offer draw</button>
+            <button className="btn" disabled={!game || !drawOffered || !!game.result} onClick={() => acceptDraw().catch(e => setErr(String(e.message || e)))}>Accept draw</button>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="h1">Board</div>
+          <div className="muted">Click a piece square, then click the destination square.</div>
+
+          <div style={{marginTop: 12, display:'grid', gridTemplateColumns: 'repeat(8, 54px)', gap: 6, width: 'fit-content'}}>
+            {(() => {
+              const files = 'abcdefgh'
+              const elems: any[] = []
+              for (let rank = 8; rank >= 1; rank--) {
+                for (let fi = 0; fi < 8; fi++) {
+                  const sq = files[fi] + String(rank)
+                  const dark = (rank + fi) % 2 === 0
+                  elems.push(<Square key={sq} sq={sq} dark={dark} />)
+                }
+              }
+              return elems
+            })()}
+          </div>
+
+          <div className="sep" />
+
+          <div className="h2">Moves (server-validated)</div>
+          <div className="list">
+            {(game?.moves || []).slice().reverse().map(m => (
+              <div key={m.txid} style={{display:'flex', justifyContent:'space-between', gap: 10, padding: '6px 0', borderBottom: '1px solid #111827'}}>
+                <div style={{opacity: .9}}>{m.ply}. {m.uci}</div>
+                <div className="muted" style={{whiteSpace:'nowrap'}}>{m.txid.slice(0, 10)}…</div>
+              </div>
+            ))}
+            {(!game?.moves || game.moves.length === 0) && <div className="muted">No moves yet.</div>}
+          </div>
+
+          <div className="sep" />
+          <div className="muted">
+            Next step: replace server “txid” with real Kaspa txids by broadcasting move txs with payloads.
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
