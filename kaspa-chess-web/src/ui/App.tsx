@@ -162,7 +162,7 @@ export default function App() {
     }
     try {
       setStatus("⏳ Creating game...");
-      const res = await fetch("/api/game/create", {
+      const res = await fetch("/api/games", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ whiteName: session.address.slice(0, 10) }),
@@ -200,11 +200,10 @@ export default function App() {
     }
     try {
       setStatus("⏳ Joining game...");
-      const res = await fetch("/api/game/join", {
+      const res = await fetch(`/api/games/${gameIdToJoin}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          gameId: gameIdToJoin,
           blackName: session.address.slice(0, 10),
         }),
       });
@@ -244,11 +243,10 @@ export default function App() {
 
     try {
       setStatus("⏳ Recording move...");
-      const res = await fetch("/api/game/move", {
+      const res = await fetch(`/api/games/${game.id}/move`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          gameId: game.id,
           uci,
           txid: undefined,
         }),
