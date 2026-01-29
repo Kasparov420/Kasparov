@@ -1,6 +1,4 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-
-export default function handler(req: VercelRequest, res: VercelResponse) {
+module.exports = (req, res) => {
   res.setHeader("Content-Type", "application/json");
   
   try {
@@ -9,4 +7,4 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
     console.error("API error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
-}
+};
