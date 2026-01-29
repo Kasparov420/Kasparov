@@ -155,31 +155,41 @@ export default function App() {
     setGame(null);
   }
 
-  function createGame() {
+  async function createGame() {
     if (!session) {
       setStatus("✗ Connect wallet first");
       return;
     }
-    const gameId = crypto.randomUUID();
-    const newGame: GameData = {
-      id: gameId,
-      creator: session.address,
-      timeControl: selectedTime.label,
-      initialTime: selectedTime.initial,
-      increment: selectedTime.increment,
-      whiteTime: selectedTime.initial * 1000,
-      blackTime: selectedTime.initial * 1000,
-      currentTurn: "w",
-      fen: chess.fen(),
-      status: "waiting",
-    };
-    setGame(newGame);
-    setGames([...games, newGame]);
-    setGameState("waiting");
-    setStatus(`✓ Game created! Share this ID`);
+    try {
+      setStatus("⏳ Creating game...");
+      const res = await fetch("/api/game/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whiteName: session.address.slice(0, 10) }),
+      });
+      const { game } = await res.json();
+      const newGame: GameData = {
+        id: game.id,
+        creator: session.address,
+        timeControl: selectedTime.label,
+        initialTime: selectedTime.initial,
+        increment: selectedTime.increment,
+        whiteTime: selectedTime.initial * 1000,
+        blackTime: selectedTime.initial * 1000,
+        currentTurn: "w",
+        fen: game.fen,
+        status: "waiting",
+      };
+      setGame(newGame);
+      setGames([...games, newGame]);
+      setGameState("waiting");
+      setStatus(`✓ Game created! ID: ${game.id.slice(0, 8)}`);
+    } catch (e) {
+      setStatus(`✗ Failed to create game`);
+    }
   }
 
-  function joinGame() {
+  async function joinGame() {
     if (!session) {
       setStatus("✗ Connect wallet first");
       return;
@@ -188,21 +198,38 @@ export default function App() {
       setStatus("✗ Enter a game ID");
       return;
     }
-    const foundGame = games.find((g) => g.id === gameIdToJoin);
-    if (!foundGame) {
-      setStatus("✗ Game not found");
-      return;
+    try {
+      setStatus("⏳ Joining game...");
+      const res = await fetch("/api/game/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId: gameIdToJoin,
+          blackName: session.address.slice(0, 10),
+        }),
+      });
+      if (!res.ok) throw new Error("Game not found");
+      const { game: apiGame } = await res.json();
+      const foundGame: GameData = {
+        id: apiGame.id,
+        creator: apiGame.whiteName,
+        opponent: session.address,
+        timeControl: "5+0",
+        initialTime: 300,
+        increment: 0,
+        whiteTime: 300000,
+        blackTime: 300000,
+        currentTurn: apiGame.turn,
+        fen: apiGame.fen,
+        status: "playing",
+      };
+      setGame(foundGame);
+      setGameState("playing");
+      setGameIdToJoin("");
+      setStatus("✓ Joined!");
+    } catch (e) {
+      setStatus(`✗ Failed to join game`);
     }
-    if (foundGame.opponent) {
-      setStatus("✗ Game full");
-      return;
-    }
-    foundGame.opponent = session.address;
-    foundGame.status = "playing";
-    setGame(foundGame);
-    setGameState("playing");
-    setGameIdToJoin("");
-    setStatus("✓ Game started!");
   }
 
   async function onDrop(sourceSquare: string, targetSquare: string) {
@@ -213,31 +240,38 @@ export default function App() {
     if (!move) return false;
 
     const nextFen = chess.fen();
-    setFen(nextFen);
-
-    const addedTime = game.increment * 1000;
-    const newGame = {
-      ...game,
-      fen: nextFen,
-      currentTurn: game.currentTurn === "w" ? "b" : "w",
-      whiteTime: isWhitesTurn ? game.whiteTime + addedTime : game.whiteTime,
-      blackTime: !isWhitesTurn ? game.blackTime + addedTime : game.blackTime,
-    };
-
-    setGame(newGame);
+    const uci = `${move.from}${move.to}${move.promotion ?? ""}`;
 
     try {
-      setStatus("⏳ Tx...");
-      await sendMoveTx(session, {
-        gameId: game.id,
-        uci: `${move.from}${move.to}${move.promotion ?? ""}`,
-        fen: nextFen,
+      setStatus("⏳ Recording move...");
+      const res = await fetch("/api/game/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId: game.id,
+          uci,
+          txid: undefined,
+        }),
       });
+      if (!res.ok) throw new Error("Move failed");
+      const { game: apiGame } = await res.json();
+
+      const addedTime = game.increment * 1000;
+      const newGame: GameData = {
+        ...game,
+        fen: apiGame.fen,
+        currentTurn: apiGame.turn,
+        whiteTime: isWhitesTurn ? game.whiteTime + addedTime : game.whiteTime,
+        blackTime: !isWhitesTurn ? game.blackTime + addedTime : game.blackTime,
+      };
+
+      setGame(newGame);
+      setFen(apiGame.fen);
       setStatus(`✓ ${move.san}`);
     } catch (e) {
       chess.undo();
       setFen(chess.fen());
-      setStatus(`✗ Tx failed`);
+      setStatus(`✗ Move failed`);
       return false;
     }
 

@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "kaspa-chess-web/api/**/*.ts": {
+      "runtime": "nodejs20.x"
+    }
+  },
+  "buildCommand": "cd kaspa-chess-web && npm run build",
+  "outputDirectory": "kaspa-chess-web/dist"
+}
