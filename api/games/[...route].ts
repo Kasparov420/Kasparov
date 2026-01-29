@@ -1,6 +1,7 @@
-import { createGame, joinGame, getGame, applyMove } from "../../kaspa-chess-web/server/gameStore.ts";
+import { createGame, joinGame, getGame, applyMove } from "../../kaspa-chess-web/server/gameStore";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-export default (req, res) => {
+export default (req: VercelRequest, res: VercelResponse) => {
   res.setHeader("Content-Type", "application/json");
 
   const route = Array.isArray(req.query.route) ? req.query.route : [req.query.route || ""];
