@@ -1,0 +1,3 @@
+# Don't ignore anything at root
+!api/
+!kaspa-chess-web/
