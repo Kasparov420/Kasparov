@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { joinGame } from "../../server/gameStore";
+import { joinGame } from "../kaspa-chess-web/server/gameStore";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).end();
