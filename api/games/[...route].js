@@ -1,5 +1,3 @@
-const { Chess } = require('chess.js');
-
 // Simple in-memory game store
 const games = new Map();
 
@@ -13,11 +11,10 @@ function generateId() {
 }
 
 function createGame(whiteName) {
-  const chess = new Chess();
   const id = generateId();
   const game = {
     id,
-    fen: chess.fen(),
+    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
     turn: 'w',
     whiteName,
     moves: []
@@ -41,19 +38,10 @@ function applyMove(gameId, uci, txid) {
   const game = games.get(gameId);
   if (!game) return null;
 
-  const chess = new Chess();
-  chess.load(game.fen);
-
-  const from = uci.slice(0, 2);
-  const to = uci.slice(2, 4);
-  const promo = uci.length > 4 ? uci.slice(4) : undefined;
-
-  const move = chess.move({ from, to, promotion: promo });
-  if (!move) return game;
-
-  game.fen = chess.fen();
-  game.turn = chess.turn();
+  // For now, just add the move without validation
   game.moves.push({ uci, txid, ts: Date.now() });
+  // Toggle turn
+  game.turn = game.turn === 'w' ? 'b' : 'w';
   return game;
 }
 
