@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { Chess } from "chess.js";
 
 type Game = {
   id: string;
@@ -13,9 +12,14 @@ type Game = {
 const games = new Map<string, Game>();
 
 function createGame(whiteName: string): Game {
-  const c = new Chess();
   const id = crypto.randomUUID();
-  const g: Game = { id, fen: c.fen(), turn: "w", whiteName, moves: [] };
+  const g: Game = { 
+    id, 
+    fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 
+    turn: "w", 
+    whiteName, 
+    moves: [] 
+  };
   games.set(id, g);
   return g;
 }
@@ -35,19 +39,12 @@ function applyMove(gameId: string, uci: string, txid?: string): Game | null {
   const g = games.get(gameId);
   if (!g) return null;
 
-  const c = new Chess();
-  c.load(g.fen);
-
-  const from = uci.slice(0, 2);
-  const to = uci.slice(2, 4);
-  const promo = uci.length > 4 ? uci.slice(4) : undefined;
-
-  const mv = c.move({ from, to, promotion: promo as any });
-  if (!mv) return g;
-
-  g.fen = c.fen();
-  g.turn = c.turn();
+  // For now, just record the move without validating with chess.js
   g.moves.push({ uci, txid, ts: Date.now() });
+  
+  // Toggle turn (simplified - not validating actual chess moves)
+  g.turn = g.turn === "w" ? "b" : "w";
+  
   return g;
 }
 
@@ -103,6 +100,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error("API error:", error);
     const message = error instanceof Error ? error.message : "Internal server error";
-    res.status(500).json({ error: message });
+    res.status(500).json({ error: message, stack: error instanceof Error ? error.stack : undefined });
   }
 }
