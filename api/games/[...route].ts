@@ -1,8 +1,10 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+
 // Simple in-memory game store
 const games = new Map();
 
 // Simple UUID v4 generator
-function generateId() {
+function generateId(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
     const r = Math.random() * 16 | 0;
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -10,9 +12,18 @@ function generateId() {
   });
 }
 
-function createGame(whiteName) {
+interface Game {
+  id: string;
+  fen: string;
+  turn: 'w' | 'b';
+  whiteName: string;
+  blackName?: string;
+  moves: Array<{ uci: string; txid?: string; ts: number }>;
+}
+
+function createGame(whiteName: string): Game {
   const id = generateId();
-  const game = {
+  const game: Game = {
     id,
     fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
     turn: 'w',
@@ -23,18 +34,18 @@ function createGame(whiteName) {
   return game;
 }
 
-function joinGame(gameId, blackName) {
+function joinGame(gameId: string, blackName: string): Game | null {
   const game = games.get(gameId);
   if (!game) return null;
   game.blackName = blackName;
   return game;
 }
 
-function getGame(gameId) {
+function getGame(gameId: string): Game | null {
   return games.get(gameId) || null;
 }
 
-function applyMove(gameId, uci, txid) {
+function applyMove(gameId: string, uci: string, txid?: string): Game | null {
   const game = games.get(gameId);
   if (!game) return null;
 
@@ -45,7 +56,7 @@ function applyMove(gameId, uci, txid) {
   return game;
 }
 
-module.exports = (req, res) => {
+export default function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
 
   const route = Array.isArray(req.query.route) ? req.query.route : [req.query.route || ''];
@@ -64,7 +75,7 @@ module.exports = (req, res) => {
 
     // GET /api/games/:id - Get game
     if (req.method === 'GET' && gameId && !action) {
-      const game = getGame(gameId);
+      const game = getGame(gameId as string);
       if (!game) {
         return res.status(404).json({ error: 'Game not found' });
       }
@@ -77,7 +88,7 @@ module.exports = (req, res) => {
       if (!blackName) {
         return res.status(400).json({ error: 'blackName required' });
       }
-      const game = joinGame(gameId, blackName);
+      const game = joinGame(gameId as string, blackName);
       if (!game) {
         return res.status(404).json({ error: 'Game not found' });
       }
@@ -90,7 +101,7 @@ module.exports = (req, res) => {
       if (!uci) {
         return res.status(400).json({ error: 'uci required' });
       }
-      const game = applyMove(gameId, uci, txid);
+      const game = applyMove(gameId as string, uci, txid);
       if (!game) {
         return res.status(404).json({ error: 'Game not found' });
       }
@@ -100,6 +111,7 @@ module.exports = (req, res) => {
     res.status(404).json({ error: 'Route not found' });
   } catch (error) {
     console.error('API error:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    res.status(500).json({ error: errorMessage });
   }
-};
+}
