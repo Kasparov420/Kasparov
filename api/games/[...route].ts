@@ -1,59 +1,91 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { Chess } from 'chess.js'
+import { randomUUID } from 'crypto'
 
-// Simple in-memory game store
-const games = new Map();
+type Game = {
+  id: string
+  createdAt: number
+  white: { address: string }
+  black?: { address: string }
+  fen: string
+  turn: 'w' | 'b'
+  status: 'waiting' | 'active' | 'ended'
+  themeSeed: string
+  lastMoveUci?: string
+  moveCount: number
+}
 
-// Simple UUID v4 generator
+const games = new Map<string, Game>();
+
 function generateId(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
+  return randomUUID().slice(0, 12)
 }
 
-interface Game {
-  id: string;
-  fen: string;
-  turn: 'w' | 'b';
-  whiteName: string;
-  blackName?: string;
-  moves: Array<{ uci: string; txid?: string; ts: number }>;
-}
-
-function createGame(whiteName: string): Game {
-  const id = generateId();
+function createGame(address: string): Game {
+  const chess = new Chess()
+  const id = generateId()
   const game: Game = {
     id,
-    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-    turn: 'w',
-    whiteName,
-    moves: []
-  };
-  games.set(id, game);
-  return game;
+    createdAt: Date.now(),
+    white: { address },
+    fen: chess.fen(),
+    turn: chess.turn() as 'w' | 'b',
+    status: 'waiting',
+    themeSeed: '',
+    moveCount: 0,
+  }
+  games.set(id, game)
+  return game
 }
 
-function joinGame(gameId: string, blackName: string): Game | null {
-  const game = games.get(gameId);
-  if (!game) return null;
-  game.blackName = blackName;
-  return game;
+function joinGame(gameId: string, address: string): Game | null {
+  const game = games.get(gameId)
+  if (!game) return null
+  if (game.status !== 'waiting') return null
+  if (address === game.white.address) return null
+
+  game.black = { address }
+  game.status = 'active'
+  game.themeSeed = randomUUID().slice(0, 8)
+  return game
 }
 
 function getGame(gameId: string): Game | null {
-  return games.get(gameId) || null;
+  return games.get(gameId) || null
 }
 
-function applyMove(gameId: string, uci: string, txid?: string): Game | null {
-  const game = games.get(gameId);
-  if (!game) return null;
+function applyMove(gameId: string, address: string, uci: string): Game | null {
+  const game = games.get(gameId)
+  if (!game) return null
+  if (game.status !== 'active') return null
 
-  // For now, just add the move without validation
-  game.moves.push({ uci, txid, ts: Date.now() });
-  // Toggle turn
-  game.turn = game.turn === 'w' ? 'b' : 'w';
-  return game;
+  const expected = game.turn === 'w' ? game.white.address : game.black?.address
+  if (!expected || address !== expected) return null
+
+  const chess = new Chess(game.fen)
+  const from = uci.slice(0, 2)
+  const to = uci.slice(2, 4)
+  const promotion = uci.length > 4 ? uci.slice(4, 5) : undefined
+
+  const move = chess.move({ from, to, promotion: promotion as any })
+  if (!move) return null
+
+  game.fen = chess.fen()
+  game.turn = chess.turn() as 'w' | 'b'
+  game.lastMoveUci = uci
+  game.moveCount += 1
+
+  if (
+    chess.isCheckmate() ||
+    chess.isDraw() ||
+    chess.isStalemate() ||
+    chess.isThreefoldRepetition() ||
+    chess.isInsufficientMaterial()
+  ) {
+    game.status = 'ended'
+  }
+
+  return game
 }
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -63,55 +95,49 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   const [gameId, action] = route;
 
   try {
-    // POST /api/games - Create game
     if (req.method === 'POST' && !gameId) {
-      const { whiteName } = req.body || {};
-      if (!whiteName) {
-        return res.status(400).json({ error: 'whiteName required' });
+      const { address } = req.body || {};
+      if (!address) {
+        return res.status(400).json({ error: 'missing address' });
       }
-      const game = createGame(whiteName);
+      const game = createGame(address);
       return res.status(201).json({ game });
     }
 
-    // GET /api/games/:id - Get game
     if (req.method === 'GET' && gameId && !action) {
       const game = getGame(gameId as string);
       if (!game) {
-        return res.status(404).json({ error: 'Game not found' });
+        return res.status(404).json({ error: 'not found' });
       }
       return res.status(200).json({ game });
     }
 
-    // POST /api/games/:id/join - Join game
     if (req.method === 'POST' && gameId && action === 'join') {
-      const { blackName } = req.body || {};
-      if (!blackName) {
-        return res.status(400).json({ error: 'blackName required' });
+      const { address } = req.body || {};
+      if (!address) {
+        return res.status(400).json({ error: 'missing address' });
       }
-      const game = joinGame(gameId as string, blackName);
+      const game = joinGame(gameId as string, address);
       if (!game) {
-        return res.status(404).json({ error: 'Game not found' });
+        return res.status(400).json({ error: 'cannot join' });
       }
       return res.status(200).json({ game });
     }
 
-    // POST /api/games/:id/move - Make move
     if (req.method === 'POST' && gameId && action === 'move') {
-      const { uci, txid } = req.body || {};
-      if (!uci) {
-        return res.status(400).json({ error: 'uci required' });
+      const { address, uci } = req.body || {};
+      if (!address || !uci) {
+        return res.status(400).json({ error: 'missing address/uci' });
       }
-      const game = applyMove(gameId as string, uci, txid);
+      const game = applyMove(gameId as string, address, uci);
       if (!game) {
-        return res.status(404).json({ error: 'Game not found' });
+        return res.status(400).json({ error: 'move failed' });
       }
       return res.status(200).json({ game });
     }
 
-    res.status(404).json({ error: 'Route not found' });
-  } catch (error) {
-    console.error('API error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    res.status(500).json({ error: errorMessage });
+    res.status(404).json({ error: 'not found' });
+  } catch (e) {
+    res.status(500).json({ error: 'internal server error' });
   }
 }

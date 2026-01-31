@@ -1,8 +1,14 @@
 {
-  "name": "kasparov-root",
+  "name": "kasparov",
   "private": true,
   "version": "0.1.0",
-  "dependencies": {
-    "chess.js": "^1.0.0"
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspace=apps/web"
   }
 }

@@ -1,0 +1,335 @@
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --text-primary: #eee;
+  --text-secondary: #aaa;
+  --accent: #0f3460;
+  --accent-light: #e94560;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.welcome {
+  text-align: center;
+  max-width: 500px;
+}
+
+.welcome h1 {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.welcome p {
+  font-size: 1.2rem;
+  color: var(--text-secondary);
+  margin-bottom: 2rem;
+}
+
+.wallet-info {
+  background: var(--bg-secondary);
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin: 2rem 0;
+  border: 1px solid var(--accent);
+}
+
+.wallet-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.wallet-address {
+  display: block;
+  background: var(--bg-primary);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-family: "Courier New", monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+  margin-bottom: 0.5rem;
+}
+
+.wallet-setup {
+  text-align: center;
+  max-width: 600px;
+  width: 100%;
+}
+
+.wallet-options {
+  margin-top: 3rem;
+}
+
+.wallet-options h3 {
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+}
+
+.btn-large {
+  width: 100%;
+  max-width: 400px;
+  padding: 16px 32px;
+  font-size: 1.1rem;
+  margin: 0.5rem auto;
+  display: block;
+}
+
+.wallet-import {
+  margin-top: 2rem;
+}
+
+.wallet-import h3 {
+  margin-bottom: 0.5rem;
+}
+
+.wallet-import p {
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+.mnemonic-input {
+  width: 100%;
+  max-width: 500px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: "Courier New", monospace;
+  font-size: 1rem;
+  resize: vertical;
+  margin-bottom: 1rem;
+}
+
+.mnemonic-input:focus {
+  outline: none;
+  border-color: var(--accent-light);
+}
+
+.wallet-import-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.mnemonic-display {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin: 2rem 0;
+  padding: 2rem;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 2px solid var(--accent);
+}
+
+.mnemonic-word {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--bg-primary);
+  border-radius: 6px;
+}
+
+.word-number {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  min-width: 20px;
+}
+
+.word-text {
+  font-family: "Courier New", monospace;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.warning-text {
+  color: var(--accent-light);
+  font-weight: 600;
+  margin: 1rem 0;
+  padding: 1rem;
+  background: rgba(233, 69, 96, 0.1);
+  border-radius: 8px;
+  border: 2px solid var(--accent-light);
+}
+
+.welcome-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.btn {
+  padding: 12px 24px;
+  font-size: 1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 600;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 2px solid var(--accent);
+}
+
+.btn-secondary:hover {
+  background: var(--accent);
+}
+
+.lobby {
+  text-align: center;
+  max-width: 600px;
+}
+
+.lobby h2 {
+  margin-bottom: 1rem;
+}
+
+.lobby p {
+  margin: 0.5rem 0;
+}
+
+.lobby code {
+  background: var(--bg-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: "Courier New", monospace;
+}
+
+.board-preview {
+  margin: 2rem 0;
+  max-width: 500px;
+}
+
+.game-container {
+  max-width: 1200px;
+  width: 100%;
+}
+
+.game-header {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.game-header h3 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.board-container {
+  max-width: 600px;
+  margin: 0 auto 2rem;
+}
+
+.game-info {
+  max-width: 600px;
+  margin: 0 auto;
+  background: var(--bg-secondary);
+  padding: 1rem;
+  border-radius: 8px;
+}
+
+.game-info h4 {
+  margin-bottom: 0.5rem;
+}
+
+.moves-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.move {
+  background: var(--accent);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-family: "Courier New", monospace;
+}
+
+.game-over {
+  text-align: center;
+  margin-top: 2rem;
+  padding: 2rem;
+  background: var(--accent-light);
+  border-radius: 8px;
+}
+
+.promotion-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.promotion-content {
+  background: var(--bg-secondary);
+  padding: 2rem;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.promotion-pieces {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.promotion-pieces button {
+  padding: 1rem;
+  font-size: 1rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.promotion-pieces button:hover {
+  background: var(--accent-light);
+  transform: scale(1.05);
+}
