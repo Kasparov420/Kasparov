@@ -17,6 +17,7 @@
     "@radix-ui/react-dialog": "^1.1.15",
     "@scure/bip32": "^2.0.1",
     "@scure/bip39": "^2.0.1",
+    "@upstash/redis": "^1.36.1",
     "bip39": "^3.1.0",
     "chess.js": "^1.4.0",
     "chessground": "^9.2.1",

@@ -131,6 +131,7 @@ export default function App() {
       return
     }
     try {
+      // First create the game on server
       const res = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -138,6 +139,18 @@ export default function App() {
       })
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
+      
+      // For internal wallets, publish on-chain event
+      if (session.kind === 'internal') {
+        const txResult = await kaspaService.publishGameInit(data.game.id)
+        if (!txResult.success) {
+          console.warn('On-chain publish failed:', txResult.error)
+          // Continue anyway - game is created server-side
+        } else {
+          console.log('Game init published on-chain:', txResult.txId)
+        }
+      }
+      
       setGame(data.game)
       setScreen('lobby')
     } catch (e) {
@@ -156,12 +169,26 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: session.address })
       })
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) {
+        const errData = await res.json()
+        throw new Error(errData.error || 'Failed to join game')
+      }
       const data = await res.json()
+      
+      // For internal wallets, publish on-chain event
+      if (session.kind === 'internal') {
+        const txResult = await kaspaService.publishGameJoin(gameId)
+        if (!txResult.success) {
+          console.warn('On-chain join publish failed:', txResult.error)
+        } else {
+          console.log('Game join published on-chain:', txResult.txId)
+        }
+      }
+      
       setGame(data.game)
       setScreen('playing')
     } catch (e) {
-      alert('Error joining game: ' + (e instanceof Error ? e.message : String(e)))
+      alert('Game not found')
     }
   }
 
@@ -179,6 +206,17 @@ export default function App() {
         throw new Error(err.error || 'move failed')
       }
       const data = await res.json()
+      
+      // For internal wallets, publish move on-chain
+      if (session.kind === 'internal') {
+        const txResult = await kaspaService.publishMove(game.id, uci, data.game.moveCount)
+        if (!txResult.success) {
+          console.warn('On-chain move publish failed:', txResult.error)
+        } else {
+          console.log('Move published on-chain:', txResult.txId)
+        }
+      }
+      
       setGame(data.game)
       return true
     } catch (e) {
