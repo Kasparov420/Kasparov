@@ -30,18 +30,18 @@ export default function App() {
   const [screen, setScreen] = useState<'lobby' | 'playing'>('lobby')
   const wsRef = useRef<WebSocket | null>(null)
 
+  // Check for existing internal wallet on mount
   useEffect(() => {
-    // Check for existing internal wallet
     const addr = localStorage.getItem("kasparov-wallet-address")
     if (addr && !session) {
-      // We don't have the mnemonic in storage for security, 
-      // but if we did/encrypted, we would auto-load here.
-      // For now, require manual re-import or just show as connected if we trust the address?
-      // Better to check if we can init invalidly? No.
-      // Ideally, check if we have a session.
+      // Address exists but no active session - user needs to re-import
+      // We don't store mnemonic/private key for security
     }
-    }
-    if (game.status === 'active') {
+  }, [])
+
+  // Update theme when game becomes active
+  useEffect(() => {
+    if (game?.status === 'active' && game?.themeSeed) {
       setTheme(themeFromSeed(game.themeSeed))
     }
   }, [game?.status, game?.themeSeed])
@@ -201,6 +201,20 @@ export default function App() {
     return false
   }
 
+  async function onImportPrivateKey(privateKey: string) {
+    await kaspaService.initializeWithPrivateKey(privateKey)
+    const address = kaspaService.getAddress()
+    if (address) {
+      setSession({
+        kind: 'internal',
+        address,
+        network: 'kaspa_mainnet'
+      })
+      return true
+    }
+    return false
+  }
+
   async function onGenerateMnemonic() {
     return await kaspaService.generateNewMnemonic()
   }
@@ -263,6 +277,7 @@ export default function App() {
         onConnectKasware={onConnectKasware}
         onConnectKastle={onConnectKastle}
         onImportInternal={onImportInternal}
+        onImportPrivateKey={onImportPrivateKey}
         onGenerateMnemonic={onGenerateMnemonic}
         wallets={wallets}
       />

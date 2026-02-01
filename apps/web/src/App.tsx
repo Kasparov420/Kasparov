@@ -5,6 +5,7 @@ import ChessGame, { type GameState } from "./game/ChessGame";
 import { randomTheme, themeFromSeed, type Theme } from "./game/theme";
 import { kaspaService } from "./kaspa/kaspaService";
 import { indexerService } from "./indexer/indexerService";
+import { setWrpcEndpoint, getConfiguredEndpoint } from "./kaspa/wallet";
 import "./App.css";
 
 type Screen = "wallet-setup" | "welcome" | "lobby" | "playing";
@@ -18,17 +19,20 @@ export default function App() {
   const [promotionMove, setPromotionMove] = useState<{ from: Square; to: Square } | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [showMnemonic, setShowMnemonic] = useState<string | null>(null);
-  const [importMode, setImportMode] = useState(false);
+  const [importMode, setImportMode] = useState<'mnemonic' | 'privateKey' | 'nodeConfig' | false>(false);
   const [mnemonicInput, setMnemonicInput] = useState("");
+  const [privateKeyInput, setPrivateKeyInput] = useState("");
+  const [nodeEndpoint, setNodeEndpoint] = useState(getConfiguredEndpoint());
 
-  // Check for existing wallet on mount
-  useEffect(() => {
-    const existing = kaspaService.checkExistingWallet();
-    if (existing) {
-      setWalletAddress(existing);
-      setScreen("welcome");
-    }
-  }, []);
+  // DON'T auto-connect from localStorage - user must explicitly import their wallet
+  // The stored address is just a hint, not a real connection
+  // useEffect(() => {
+  //   const existing = kaspaService.checkExistingWallet();
+  //   if (existing) {
+  //     setWalletAddress(existing);
+  //     setScreen("welcome");
+  //   }
+  // }, []);
 
   // Random theme cycling in lobby
   useEffect(() => {
@@ -225,16 +229,26 @@ export default function App() {
   };
 
   const handleCreateWallet = async () => {
-    const mnemonic = kaspaService.generateNewMnemonic();
-    await kaspaService.initialize(mnemonic);
-    const address = kaspaService.getAddress();
-    setWalletAddress(address);
-    setShowMnemonic(mnemonic);
+    try {
+      const mnemonic = await kaspaService.generateNewMnemonic();
+      await kaspaService.initialize(mnemonic);
+      const address = kaspaService.getAddress();
+      setWalletAddress(address);
+      setShowMnemonic(mnemonic);
+    } catch (error) {
+      console.error('Failed to create wallet:', error);
+      alert('Failed to create wallet: ' + (error instanceof Error ? error.message : String(error)));
+    }
   };
 
   const handleImportWallet = async () => {
     if (!mnemonicInput.trim()) {
       alert("Please enter a mnemonic phrase");
+      return;
+    }
+    const words = mnemonicInput.trim().split(/\s+/);
+    if (words.length !== 12 && words.length !== 24) {
+      alert("Mnemonic must be 12 or 24 words");
       return;
     }
     try {
@@ -243,13 +257,48 @@ export default function App() {
       setWalletAddress(address);
       setScreen("welcome");
     } catch (error) {
-      alert("Invalid mnemonic phrase");
+      alert("Invalid mnemonic phrase - check spelling");
     }
+  };
+
+  const handleImportPrivateKey = async () => {
+    if (!privateKeyInput.trim()) {
+      alert("Please enter a private key");
+      return;
+    }
+    try {
+      await kaspaService.initializeWithPrivateKey(privateKeyInput.trim());
+      const address = kaspaService.getAddress();
+      setWalletAddress(address);
+      setScreen("welcome");
+    } catch (error) {
+      alert("Invalid private key: " + (error instanceof Error ? error.message : String(error)));
+    }
+  };
+
+  const handleDisconnect = () => {
+    localStorage.removeItem('kasparov-wallet-address');
+    setWalletAddress(null);
+    setScreen('wallet-setup');
   };
 
   const handleContinueAfterBackup = () => {
     setShowMnemonic(null);
     setScreen("welcome");
+  };
+
+  const handleCopyMnemonic = async () => {
+    if (showMnemonic) {
+      await navigator.clipboard.writeText(showMnemonic);
+      alert('Recovery phrase copied to clipboard!');
+    }
+  };
+
+  const handleCopyAddress = async () => {
+    if (walletAddress) {
+      await navigator.clipboard.writeText(walletAddress);
+      alert('Address copied!');
+    }
   };
 
   if (screen === "wallet-setup") {
@@ -269,9 +318,14 @@ export default function App() {
                 </div>
               ))}
             </div>
+            <button onClick={handleCopyMnemonic} className="btn btn-secondary" style={{ marginTop: '12px' }}>
+              📋 Copy All Words
+            </button>
             <div className="wallet-info">
               <p className="wallet-label">Your Address:</p>
-              <code className="wallet-address">{walletAddress}</code>
+              <code className="wallet-address" onClick={handleCopyAddress} style={{ cursor: 'pointer' }} title="Click to copy">
+                {walletAddress}
+              </code>
             </div>
             <button onClick={handleContinueAfterBackup} className="btn btn-primary">
               I've Saved My Recovery Phrase
@@ -293,23 +347,110 @@ export default function App() {
               <button onClick={handleCreateWallet} className="btn btn-primary btn-large">
                 Create New Wallet
               </button>
-              <button onClick={() => setImportMode(true)} className="btn btn-secondary btn-large">
-                Import Existing Wallet
+              <button onClick={() => setImportMode('mnemonic')} className="btn btn-secondary btn-large">
+                Import with Seed Phrase
               </button>
+              <button onClick={() => setImportMode('privateKey')} className="btn btn-secondary btn-large">
+                Import with Private Key
+              </button>
+              <div style={{ marginTop: '20px', borderTop: '1px solid #333', paddingTop: '20px' }}>
+                <button onClick={() => setImportMode('nodeConfig')} className="btn btn-small" style={{ opacity: 0.7 }}>
+                  ⚙️ Configure Node
+                </button>
+                <p style={{ fontSize: '12px', opacity: 0.5, marginTop: '8px' }}>
+                  Current: {nodeEndpoint.replace('wss://', '').replace('ws://', '').slice(0, 30)}...
+                </p>
+              </div>
             </div>
-          ) : (
+          ) : importMode === 'mnemonic' ? (
             <div className="wallet-import">
               <h3>Import Wallet</h3>
-              <p>Enter your 12-word recovery phrase</p>
+              <p>Enter your 12 or 24-word recovery phrase</p>
               <textarea
                 value={mnemonicInput}
                 onChange={(e) => setMnemonicInput(e.target.value)}
-                placeholder="word1 word2 word3 ..."
+                placeholder="word1 word2 word3 ... (12 or 24 words)"
                 className="mnemonic-input"
                 rows={4}
               />
               <div className="wallet-import-buttons">
                 <button onClick={handleImportWallet} className="btn btn-primary">
+                  Import Wallet
+                </button>
+                <button onClick={() => setImportMode(false)} className="btn btn-secondary">
+                  Back
+                </button>
+              </div>
+            </div>
+          ) : importMode === 'privateKey' ? (
+            <div className="wallet-import">
+              <h3>Import with Private Key</h3>
+              <p>Enter your 64-character hex private key</p>
+              <input
+                type="password"
+                value={privateKeyInput}
+                onChange={(e) => setPrivateKeyInput(e.target.value)}
+                placeholder="64-character hex private key"
+                className="mnemonic-input"
+                style={{ fontFamily: 'monospace', height: 'auto', padding: '12px' }}
+              />
+              <div className="wallet-import-buttons">
+                <button onClick={handleImportPrivateKey} className="btn btn-primary">
+                  Import Wallet
+                </button>
+                <button onClick={() => setImportMode(false)} className="btn btn-secondary">
+                  Back
+                </button>
+              </div>
+            </div>
+          ) : importMode === 'nodeConfig' ? (
+            <div className="wallet-import">
+              <h3>⚙️ Kaspa Node Configuration</h3>
+              <p>Connect to your local node or use a public endpoint</p>
+              <input
+                type="text"
+                value={nodeEndpoint}
+                onChange={(e) => setNodeEndpoint(e.target.value)}
+                placeholder="ws://localhost:17110"
+                className="mnemonic-input"
+                style={{ fontFamily: 'monospace', height: 'auto', padding: '12px' }}
+              />
+              <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '8px' }}>
+                <strong>Common endpoints:</strong><br/>
+                • Local mainnet: <code>ws://localhost:17110</code><br/>
+                • Local testnet: <code>ws://localhost:17210</code><br/>
+                • Public: <code>wss://kaspa.aspectron.com/mainnet</code>
+              </div>
+              <div className="wallet-import-buttons">
+                <button 
+                  onClick={() => {
+                    setWrpcEndpoint(nodeEndpoint);
+                    alert('Node endpoint saved!');
+                    setImportMode(false);
+                  }} 
+                  className="btn btn-primary"
+                >
+                  Save Configuration
+                </button>
+                <button onClick={() => setImportMode(false)} className="btn btn-secondary">
+                  Back
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="wallet-import">
+              <h3>Import with Private Key</h3>
+              <p>Enter your 64-character hex private key</p>
+              <input
+                type="password"
+                value={privateKeyInput}
+                onChange={(e) => setPrivateKeyInput(e.target.value)}
+                placeholder="64-character hex private key"
+                className="mnemonic-input"
+                style={{ fontFamily: 'monospace', height: 'auto', padding: '12px' }}
+              />
+              <div className="wallet-import-buttons">
+                <button onClick={handleImportPrivateKey} className="btn btn-primary">
                   Import Wallet
                 </button>
                 <button onClick={() => setImportMode(false)} className="btn btn-secondary">
@@ -334,6 +475,9 @@ export default function App() {
             <div className="wallet-info">
               <p className="wallet-label">Connected Wallet:</p>
               <code className="wallet-address">{walletAddress}</code>
+              <button onClick={handleDisconnect} className="btn btn-small btn-secondary" style={{ marginTop: '8px' }}>
+                Disconnect
+              </button>
             </div>
           )}
           
