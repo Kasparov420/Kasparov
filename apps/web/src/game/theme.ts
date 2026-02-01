@@ -1,5 +1,5 @@
 /**
- * Board theme system - random themes until game starts
+ * Board theme system - professional chess.com inspired themes
  */
 
 export interface Theme {
@@ -13,52 +13,52 @@ export interface Theme {
 
 const THEMES: Theme[] = [
   {
-    id: "blue",
-    name: "Blue",
-    lightSquare: "#DEE3E6",
-    darkSquare: "#8CA2AD",
-    selectedSquare: "#F6F669",
-    legalMoveIndicator: "rgba(0, 255, 0, 0.4)",
-  },
-  {
-    id: "green",
-    name: "Green",
-    lightSquare: "#FFFFDD",
-    darkSquare: "#86A666",
-    selectedSquare: "#F6F669",
-    legalMoveIndicator: "rgba(0, 255, 0, 0.4)",
+    id: "classic",
+    name: "Classic Green",
+    lightSquare: "#eeeed2",
+    darkSquare: "#769656",
+    selectedSquare: "rgba(186, 202, 68, 0.8)",
+    legalMoveIndicator: "rgba(0, 0, 0, 0.15)",
   },
   {
     id: "brown",
-    name: "Brown",
-    lightSquare: "#F0D9B5",
-    darkSquare: "#B58863",
-    selectedSquare: "#F6F669",
-    legalMoveIndicator: "rgba(0, 255, 0, 0.4)",
+    name: "Wood",
+    lightSquare: "#f0d9b5",
+    darkSquare: "#b58863",
+    selectedSquare: "rgba(255, 255, 0, 0.5)",
+    legalMoveIndicator: "rgba(0, 0, 0, 0.15)",
   },
   {
-    id: "purple",
-    name: "Purple",
-    lightSquare: "#E8E9F0",
-    darkSquare: "#9F90B0",
-    selectedSquare: "#F6F669",
-    legalMoveIndicator: "rgba(0, 255, 0, 0.4)",
-  },
-  {
-    id: "olive",
-    name: "Olive",
-    lightSquare: "#E8E9B0",
-    darkSquare: "#A8A65A",
-    selectedSquare: "#F6F669",
-    legalMoveIndicator: "rgba(0, 255, 0, 0.4)",
+    id: "blue",
+    name: "Ice Blue",
+    lightSquare: "#dee3e6",
+    darkSquare: "#8ca2ad",
+    selectedSquare: "rgba(82, 176, 220, 0.6)",
+    legalMoveIndicator: "rgba(0, 0, 0, 0.15)",
   },
   {
     id: "coral",
     name: "Coral",
-    lightSquare: "#FFE4E1",
-    darkSquare: "#CD8C95",
-    selectedSquare: "#F6F669",
-    legalMoveIndicator: "rgba(0, 255, 0, 0.4)",
+    lightSquare: "#f2d7c7",
+    darkSquare: "#c27a5c",
+    selectedSquare: "rgba(255, 180, 120, 0.7)",
+    legalMoveIndicator: "rgba(0, 0, 0, 0.15)",
+  },
+  {
+    id: "purple",
+    name: "Amethyst",
+    lightSquare: "#e8e0f0",
+    darkSquare: "#9070a0",
+    selectedSquare: "rgba(180, 130, 220, 0.6)",
+    legalMoveIndicator: "rgba(0, 0, 0, 0.15)",
+  },
+  {
+    id: "kaspa",
+    name: "Kaspa Teal",
+    lightSquare: "#e0f2ef",
+    darkSquare: "#4a9e8f",
+    selectedSquare: "rgba(73, 234, 203, 0.6)",
+    legalMoveIndicator: "rgba(0, 0, 0, 0.15)",
   },
 ];
 

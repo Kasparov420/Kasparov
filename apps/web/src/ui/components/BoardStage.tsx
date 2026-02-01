@@ -26,13 +26,12 @@ export default function BoardStage({
     const styles: Record<string, React.CSSProperties> = {}
     if (selected) {
       styles[selected] = {
-        boxShadow: 'inset 0 0 0 3px var(--accent)'
+        boxShadow: 'inset 0 0 0 3px #baca44'
       }
     }
     for (const sq of targets) {
       styles[sq] = {
-        boxShadow: 'inset 0 0 0 2px rgba(34,197,94,0.6)',
-        background: 'radial-gradient(circle, rgba(34,197,94,0.4) 20%, transparent 22%)'
+        background: 'radial-gradient(circle, rgba(0,0,0,0.2) 25%, transparent 25%)'
       }
     }
     return styles
@@ -55,7 +54,6 @@ export default function BoardStage({
     } else if (targets.includes(square)) {
       const from = selected
       const to = square
-      const uci = from + to
       onMove(from, to)
       setSelected(null)
       setTargets([])
@@ -71,17 +69,27 @@ export default function BoardStage({
     }
   }
 
+  // Calculate board size based on viewport
+  const boardSize = Math.min(560, typeof window !== 'undefined' ? window.innerWidth - 440 : 480)
+
   return (
-    <div style={{ padding: 20, display: 'flex', justifyContent: 'center' }}>
-      <Chessboard
-        options={{
-          position: fen,
-          onSquareClick: onMove ? handleSquareClick : undefined,
-          boardOrientation: orientation,
-          squareStyles: customSquareStyles,
-          boardStyle: { width: Math.min(720, window.innerWidth - 400) }
-        }}
-      />
+    <div className="board-wrapper">
+      <div className="board-frame">
+        <Chessboard
+          options={{
+            position: fen,
+            onSquareClick: onMove ? handleSquareClick : undefined,
+            boardOrientation: orientation,
+            squareStyles: customSquareStyles,
+            boardStyle: { 
+              width: boardSize,
+              borderRadius: '4px'
+            },
+            lightSquareStyle: { backgroundColor: '#f0d9b5' },
+            darkSquareStyle: { backgroundColor: '#b58863' }
+          }}
+        />
+      </div>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Play, Users, Copy, Check, Clock, Trophy, Swords } from 'lucide-react'
 
 export default function RightPanel({
   game,
@@ -11,6 +12,7 @@ export default function RightPanel({
   screen
 }: any) {
   const [gameId, setGameId] = useState('')
+  const [copied, setCopied] = useState(false)
 
   const handleCreate = () => {
     if (!session) {
@@ -32,144 +34,156 @@ export default function RightPanel({
     onJoin(gameId.trim())
   }
 
-  return (
-    <div style={{
-      padding: 20,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 20,
-      color: '#e6edf3',
-      background: 'rgba(15,23,32,0.8)',
-      borderRadius: 12,
-      border: '1px solid rgba(255,255,255,0.1)'
-    }}>
-      {!game ? (
-        <>
-          <div>
-            <h2 style={{ margin: '0 0 12px 0', fontSize: 18 }}>Chess Game</h2>
-            <button
-              onClick={handleCreate}
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                background: 'linear-gradient(135deg, #2563eb 0%, #1d3a8a 100%)',
-                border: '1px solid #60a5fa',
-                color: '#fff',
-                borderRadius: 8,
-                cursor: 'pointer',
-                fontSize: 14,
-                fontWeight: 600,
-                marginBottom: 12
-              }}
-            >
-              {session ? 'Create Game' : 'Connect to Create'}
-            </button>
+  const copyGameId = () => {
+    if (game?.id) {
+      navigator.clipboard.writeText(game.id)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
 
-            <div style={{ marginTop: 12 }}>
-              <label style={{ fontSize: 12, color: '#a0aec0', display: 'block', marginBottom: 6 }}>
-                Join Game ID
-              </label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  placeholder="Game ID"
-                  value={gameId}
-                  onChange={(e) => setGameId(e.target.value)}
-                  style={{
-                    flex: 1,
-                    padding: '8px 12px',
-                    background: 'rgba(0,0,0,0.3)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    color: '#e6edf3',
-                    borderRadius: 6,
-                    fontSize: 12
-                  }}
-                />
-                <button
-                  onClick={handleJoin}
-                  style={{
-                    padding: '8px 16px',
-                    background: 'rgba(0,255,163,0.1)',
-                    border: '1px solid rgba(0,255,163,0.3)',
-                    color: 'rgba(0,255,163,0.9)',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    fontWeight: 600
-                  }}
-                >
-                  Join
-                </button>
-              </div>
+  if (!game) {
+    return (
+      <div className="lobby-panel">
+        <div className="lobby-header">
+          <div className="lobby-title">♟️ Play Chess</div>
+          <div className="lobby-subtitle">On-chain gaming powered by Kaspa</div>
+        </div>
+        
+        <div className="lobby-content">
+          <button className="create-btn kaspa" onClick={handleCreate}>
+            <Play size={18} />
+            {session ? 'Create New Game' : 'Connect Wallet to Play'}
+          </button>
+          
+          <div className="divider-or">
+            <span>or join existing</span>
+          </div>
+          
+          <div className="join-section">
+            <label className="join-label">Enter Game ID</label>
+            <div className="join-row">
+              <input
+                type="text"
+                className="join-input"
+                placeholder="Paste game ID here..."
+                value={gameId}
+                onChange={(e) => setGameId(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+              />
+              <button className="join-btn" onClick={handleJoin}>
+                <Users size={16} />
+                Join
+              </button>
             </div>
           </div>
-        </>
-      ) : (
-        <>
-          <div>
-            <h2 style={{ margin: '0 0 12px 0', fontSize: 18 }}>Game: {game.id}</h2>
-            <div style={{ fontSize: 12, color: '#a0aec0', lineHeight: 1.6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span>Status:</span>
-                <strong>{game.status}</strong>
+          
+          {!session && (
+            <div className="status-card waiting">
+              <div className="status-title">Connect your wallet</div>
+              <div className="status-text">
+                Connect a Kaspa wallet to create or join games
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span>You are:</span>
-                <strong>{myColor?.toUpperCase() || '—'}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span>Turn:</span>
-                <strong>{game.turn === 'w' ? 'White' : 'Black'}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span>Your Turn:</span>
-                <strong style={{ color: myTurn ? '#10b981' : '#ef4444' }}>
-                  {myTurn ? 'YES' : 'NO'}
-                </strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Moves:</span>
-                <strong>{game.moveCount || 0}</strong>
-              </div>
-            </div>
-          </div>
-
-          {game.status === 'waiting' && (
-            <div style={{
-              padding: 12,
-              background: 'rgba(0,255,163,0.1)',
-              border: '1px solid rgba(0,255,163,0.3)',
-              borderRadius: 6,
-              fontSize: 12,
-              color: 'rgba(0,255,163,0.9)'
-            }}>
-              Share Game ID with opponent to join
             </div>
           )}
+        </div>
+      </div>
+    )
+  }
 
-          {game.status === 'ended' && (
-            <div style={{
-              padding: 12,
-              background: 'rgba(239,68,68,0.1)',
-              border: '1px solid rgba(239,68,68,0.3)',
-              borderRadius: 6,
-              fontSize: 12,
-              color: 'rgba(239,68,68,0.9)'
-            }}>
+  return (
+    <div className="game-panel">
+      <div className="panel-header">
+        <div className="panel-title">
+          <Swords size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
+          Game Info
+        </div>
+        <span className={`status-badge ${game.status}`}>
+          {game.status === 'waiting' ? '⏳ Waiting' : 
+           game.status === 'active' ? '🎮 Active' : '🏁 Ended'}
+        </span>
+      </div>
+      
+      <div className="panel-content">
+        {/* Game ID */}
+        <div className="game-id-display">
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {game.id}
+          </span>
+          <button className="copy-btn" onClick={copyGameId}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+        
+        {/* Player Cards */}
+        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className={`player-card ${game.turn === 'w' ? 'active' : ''}`}>
+            <div className="player-avatar white">♔</div>
+            <div className="player-info">
+              <div className="player-name">White {myColor === 'white' ? '(You)' : ''}</div>
+              <div className="player-address">
+                {game.white?.address?.slice(0, 10)}...
+              </div>
+            </div>
+            {game.turn === 'w' && <Clock size={16} style={{ color: 'var(--accent-secondary)' }} />}
+          </div>
+          
+          <div className={`player-card ${game.turn === 'b' ? 'active' : ''}`}>
+            <div className="player-avatar black">♚</div>
+            <div className="player-info">
+              <div className="player-name">Black {myColor === 'black' ? '(You)' : ''}</div>
+              <div className="player-address">
+                {game.black?.address ? `${game.black.address.slice(0, 10)}...` : 'Waiting for opponent...'}
+              </div>
+            </div>
+            {game.turn === 'b' && game.black && <Clock size={16} style={{ color: 'var(--accent-secondary)' }} />}
+          </div>
+        </div>
+        
+        {/* Game Stats */}
+        <div className="info-grid" style={{ marginTop: 16 }}>
+          <div className="info-row">
+            <span className="info-label">Your Color</span>
+            <span className="info-value">{myColor?.toUpperCase() || '—'}</span>
+          </div>
+          <div className="info-row">
+            <span className="info-label">Turn</span>
+            <span className="info-value">{game.turn === 'w' ? 'White' : 'Black'}</span>
+          </div>
+          <div className="info-row">
+            <span className="info-label">Your Turn</span>
+            <span className={`info-value ${myTurn ? 'success' : 'error'}`}>
+              {myTurn ? '✓ Yes' : '✗ No'}
+            </span>
+          </div>
+          <div className="info-row">
+            <span className="info-label">Moves Played</span>
+            <span className="info-value">{game.moveCount || 0}</span>
+          </div>
+        </div>
+        
+        {/* Status Messages */}
+        {game.status === 'waiting' && (
+          <div className="status-card waiting" style={{ marginTop: 16 }}>
+            <div className="status-title">⏳ Waiting for Opponent</div>
+            <div className="status-text">
+              Share the Game ID above with your opponent to start the match
+            </div>
+          </div>
+        )}
+        
+        {game.status === 'ended' && (
+          <div className="status-card ended" style={{ marginTop: 16 }}>
+            <div className="status-title">
+              <Trophy size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />
               Game Over
             </div>
-          )}
-        </>
-      )}
-
-      <div style={{
-        fontSize: 10,
-        color: '#647686',
-        padding: '8px 0 0 0',
-        borderTop: '1px solid rgba(255,255,255,0.05)',
-        marginTop: 'auto'
-      }}>
-        {session ? `${session.address.slice(0, 10)}...` : 'Not Connected'}
+            <div className="status-text">
+              The game has ended. Start a new game to play again!
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

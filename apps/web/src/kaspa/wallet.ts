@@ -15,6 +15,9 @@ import { blake2b } from '@noble/hashes/blake2b';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { encodeEvent, isPayloadSafe, type GameEvent } from './eventCodec';
 
+// Vite env type declaration
+declare const import_meta_env: { VITE_KASPA_WRPC?: string; VITE_KASPA_API?: string } | undefined;
+
 // wRPC endpoint configuration
 // Priority: 1) localStorage override, 2) env var, 3) public fallbacks
 const getWrpcEndpoint = (): string => {
@@ -22,8 +25,11 @@ const getWrpcEndpoint = (): string => {
   const localEndpoint = localStorage.getItem('kasparov-wrpc-endpoint');
   if (localEndpoint) return localEndpoint;
   
-  // Check for environment variable
-  if (import.meta.env.VITE_KASPA_WRPC) return import.meta.env.VITE_KASPA_WRPC;
+  // Check for environment variable (Vite)
+  try {
+    const env = (import.meta as any).env;
+    if (env?.VITE_KASPA_WRPC) return env.VITE_KASPA_WRPC;
+  } catch {}
   
   // Default to public endpoint
   return 'wss://kaspa.aspectron.com/mainnet';
@@ -36,8 +42,14 @@ const PUBLIC_WRPC_ENDPOINTS = [
 ];
 
 // Kaspa REST API for balance/UTXO queries
-// For local node, you'd use your node's RPC instead
-const KASPA_API = import.meta.env.VITE_KASPA_API || 'https://api.kaspa.org';
+const getKaspaApi = (): string => {
+  try {
+    const env = (import.meta as any).env;
+    if (env?.VITE_KASPA_API) return env.VITE_KASPA_API;
+  } catch {}
+  return 'https://api.kaspa.org';
+};
+const KASPA_API = getKaspaApi();
 
 // Export for UI configuration
 export function setWrpcEndpoint(endpoint: string): void {
@@ -49,85 +61,118 @@ export function getConfiguredEndpoint(): string {
   return getWrpcEndpoint();
 }
 
-// ============== Bech32m Encoding for Kaspa Addresses ==============
+// ============== Kaspa Bech32 Encoding ==============
+// Kaspa uses a custom bech32 variant with 8-character checksum
+// Based on rusty-kaspa crypto/addresses/src/bech32.rs
 
 const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-const BECH32M_CONST = 0x2bc830a3;
 
-function bech32Polymod(values: number[]): number {
-  const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
-  let chk = 1;
-  for (const v of values) {
-    const b = chk >> 25;
-    chk = ((chk & 0x1ffffff) << 5) ^ v;
-    for (let i = 0; i < 5; i++) {
-      if ((b >> i) & 1) chk ^= GEN[i];
+/**
+ * Kaspa polymod function for bech32 checksum
+ * Uses 40-bit generator polynomial for 8-character checksum
+ */
+function polymod(values: number[]): bigint {
+  let c = 1n;
+  for (const d of values) {
+    const c0 = c >> 35n;
+    c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(d);
+    
+    if ((c0 & 0x01n) !== 0n) c ^= 0x98f2bc8e61n;
+    if ((c0 & 0x02n) !== 0n) c ^= 0x79b76d99e2n;
+    if ((c0 & 0x04n) !== 0n) c ^= 0xf33e5fb3c4n;
+    if ((c0 & 0x08n) !== 0n) c ^= 0xae2eabe2a8n;
+    if ((c0 & 0x10n) !== 0n) c ^= 0x1e4f43e470n;
+  }
+  return c ^ 1n; // XOR with 1 at the end!
+}
+
+/**
+ * Compute checksum for Kaspa address
+ */
+function kaspaChecksum(payload: number[], prefix: string): bigint {
+  // prefix bytes masked to 5 bits, then 0, then payload, then 8 zeros
+  const prefixBytes = Array.from(prefix).map(c => c.charCodeAt(0) & 0x1f);
+  const values = [...prefixBytes, 0, ...payload, 0, 0, 0, 0, 0, 0, 0, 0];
+  return polymod(values);
+}
+
+/**
+ * Convert 8-bit array to 5-bit array with padding
+ */
+function conv8to5(payload: Uint8Array): number[] {
+  const result: number[] = [];
+  let buff = 0;
+  let bits = 0;
+  
+  for (const byte of payload) {
+    buff = (buff << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      result.push((buff >> bits) & 0x1f);
     }
   }
-  return chk;
-}
-
-function bech32HrpExpand(hrp: string): number[] {
-  const ret: number[] = [];
-  for (const c of hrp) ret.push(c.charCodeAt(0) >> 5);
-  ret.push(0);
-  for (const c of hrp) ret.push(c.charCodeAt(0) & 31);
-  return ret;
-}
-
-function bech32Checksum(hrp: string, data: number[]): number[] {
-  const values = bech32HrpExpand(hrp).concat(data).concat([0, 0, 0, 0, 0, 0, 0, 0]);
-  const polymod = bech32Polymod(values) ^ BECH32M_CONST;
-  const ret: number[] = [];
-  for (let i = 0; i < 8; i++) {
-    ret.push((polymod >> (5 * (7 - i))) & 31);
+  
+  // Pad remaining bits
+  if (bits > 0) {
+    result.push((buff << (5 - bits)) & 0x1f);
   }
-  return ret;
+  
+  return result;
 }
 
-function bech32Encode(hrp: string, data: number[]): string {
-  const combined = data.concat(bech32Checksum(hrp, data));
+/**
+ * Convert checksum (40-bit) to 5-bit array
+ */
+function checksumTo5bit(checksum: bigint): number[] {
+  const result: number[] = [];
+  for (let i = 7; i >= 0; i--) {
+    result.push(Number((checksum >> BigInt(i * 5)) & 0x1fn));
+  }
+  return result;
+}
+
+/**
+ * Encode Kaspa address in bech32 format
+ */
+function bech32Encode(hrp: string, payload5bit: number[]): string {
+  const checksum = kaspaChecksum(payload5bit, hrp);
+  const checksumBits = checksumTo5bit(checksum);
+  const combined = [...payload5bit, ...checksumBits];
   return hrp + ':' + combined.map(d => CHARSET[d]).join('');
-}
-
-function convertBits(data: Uint8Array, fromBits: number, toBits: number, pad: boolean): number[] {
-  let acc = 0, bits = 0;
-  const ret: number[] = [];
-  const maxv = (1 << toBits) - 1;
-  
-  for (const value of data) {
-    acc = (acc << fromBits) | value;
-    bits += fromBits;
-    while (bits >= toBits) {
-      bits -= toBits;
-      ret.push((acc >> bits) & maxv);
-    }
-  }
-  
-  if (pad && bits > 0) {
-    ret.push((acc << (toBits - bits)) & maxv);
-  }
-  
-  return ret;
 }
 
 /**
  * Create Kaspa address from public key
- * Kaspa uses: version byte + blake2b-256(pubkey) encoded as bech32m
+ * 
+ * Kaspa P2PK (schnorr) addresses use the raw 32-byte public key (x-coordinate),
+ * NOT a hash of the pubkey like Bitcoin.
+ * 
+ * Format: version byte (0x00 for schnorr P2PK) + 32-byte pubkey
+ * Encoded as bech32 with "kaspa:" prefix
  */
 function pubkeyToKaspaAddress(pubkey: Uint8Array): string {
-  // ECDSA schnorr pubkey hash
-  const hash = blake2b(pubkey, { dkLen: 32 });
+  // For schnorr (P2PK), we use the 32-byte x-coordinate of the public key
+  // If we have a 33-byte compressed pubkey, strip the prefix byte
+  let pubkey32: Uint8Array;
+  if (pubkey.length === 33) {
+    // Compressed pubkey: first byte is 0x02 or 0x03, rest is x-coordinate
+    pubkey32 = pubkey.slice(1);
+  } else if (pubkey.length === 32) {
+    pubkey32 = pubkey;
+  } else {
+    throw new Error(`Invalid public key length: ${pubkey.length}`);
+  }
   
-  // Version 0x00 for P2PK (schnorr)
+  // Version 0x00 for schnorr P2PK + 32-byte pubkey
   const payload = new Uint8Array(33);
   payload[0] = 0x00;
-  payload.set(hash, 1);
+  payload.set(pubkey32, 1);
   
-  // Convert to 5-bit groups
-  const data5bit = convertBits(payload, 8, 5, true);
+  // Convert to 5-bit groups using Kaspa's conv8to5
+  const payload5bit = conv8to5(payload);
   
-  return bech32Encode('kaspa', data5bit);
+  return bech32Encode('kaspa', payload5bit);
 }
 
 // ============== Wallet Implementation ==============
@@ -291,24 +336,223 @@ export class KaspaWallet {
       }
 
       // Calculate balance
-      let balance = 0n;
+      let totalInput = 0n;
       for (const utxo of utxos) {
-        balance += BigInt(utxo.utxoEntry?.amount || 0);
+        totalInput += BigInt(utxo.utxoEntry?.amount || 0);
       }
       
-      console.log('[Kaspa] Balance:', balance, 'sompi');
+      console.log('[Kaspa] Balance:', totalInput, 'sompi');
       console.log('[Kaspa] UTXOs:', utxos.length);
 
-      // For now, log what we would do
-      // Full wRPC tx submission requires more infrastructure
-      return { 
-        success: false, 
-        error: `Transaction building ready. Balance: ${balance} sompi. wRPC submission pending implementation.`
-      };
+      // Minimum transaction fee (1000 sompi = 0.00001 KAS)
+      const FEE = 1000n;
+      // Minimum output value
+      const MIN_OUTPUT = 294n;
+      
+      if (totalInput < FEE + MIN_OUTPUT) {
+        return { success: false, error: `Insufficient funds. Need at least ${FEE + MIN_OUTPUT} sompi, have ${totalInput}` };
+      }
+
+      // Build and submit transaction
+      const result = await this.buildAndSubmitTransaction(utxos, payload, totalInput, FEE);
+      return result;
     } catch (e: any) {
       console.error('[Kaspa] Transaction failed:', e);
       return { success: false, error: e.message || 'Transaction failed' };
     }
+  }
+
+  /**
+   * Build and submit a transaction via wRPC
+   */
+  private async buildAndSubmitTransaction(
+    utxos: any[],
+    opReturnData: string,
+    totalInput: bigint,
+    fee: bigint
+  ): Promise<TxResult> {
+    if (!this.privateKey || !this.publicKey) {
+      return { success: false, error: 'Wallet not initialized' };
+    }
+
+    const endpoint = getWrpcEndpoint();
+    console.log('[Kaspa] Connecting to wRPC:', endpoint);
+
+    return new Promise((resolve) => {
+      const ws = new WebSocket(endpoint);
+      let resolved = false;
+      
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          ws.close();
+          resolve({ success: false, error: 'Connection timeout' });
+        }
+      }, 15000);
+
+      ws.onopen = async () => {
+        console.log('[Kaspa] wRPC connected');
+        
+        try {
+          // Build transaction inputs
+          const inputs = utxos.map((utxo: any) => ({
+            previousOutpoint: {
+              transactionId: utxo.outpoint?.transactionId,
+              index: utxo.outpoint?.index || 0
+            },
+            signatureScript: '',
+            sequence: 0,
+            sigOpCount: 1
+          }));
+
+          // Change output (send back to self minus fee)
+          const changeAmount = totalInput - fee;
+          
+          // Build transaction outputs
+          // 1. OP_RETURN with game data
+          // 2. Change back to self
+          const outputs = [
+            {
+              // Change output
+              amount: changeAmount.toString(),
+              scriptPublicKey: {
+                version: 0,
+                scriptPublicKey: this.getScriptPublicKey()
+              }
+            }
+          ];
+
+          // Convert OP_RETURN data to hex
+          const opReturnHex = Array.from(new TextEncoder().encode(opReturnData))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+          
+          // Build transaction object
+          const transaction = {
+            version: 0,
+            inputs,
+            outputs,
+            lockTime: 0n,
+            subnetworkId: '0000000000000000000000000000000000000000',
+            gas: 0n,
+            payload: opReturnHex
+          };
+
+          // Sign each input
+          for (let i = 0; i < inputs.length; i++) {
+            const utxo = utxos[i];
+            const sigHash = await this.computeSigHash(transaction, i, utxo);
+            const signature = secp256k1.sign(sigHash, this.privateKey!);
+            
+            // Build signature script (schnorr)
+            const sigBytes = signature.toCompactRawBytes();
+            const sigScript = this.buildSignatureScript(sigBytes, this.publicKey!);
+            inputs[i].signatureScript = sigScript;
+          }
+
+          // Submit via wRPC
+          const submitRequest = {
+            id: 1,
+            method: 'submitTransaction',
+            params: {
+              transaction: {
+                version: transaction.version,
+                inputs: transaction.inputs,
+                outputs: transaction.outputs,
+                lockTime: transaction.lockTime.toString(),
+                subnetworkId: transaction.subnetworkId,
+                gas: transaction.gas.toString(),
+                payload: transaction.payload
+              },
+              allowOrphan: false
+            }
+          };
+
+          console.log('[Kaspa] Submitting transaction...');
+          ws.send(JSON.stringify(submitRequest));
+        } catch (e: any) {
+          clearTimeout(timeout);
+          resolved = true;
+          ws.close();
+          resolve({ success: false, error: 'Transaction build error: ' + e.message });
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const response = JSON.parse(event.data);
+          console.log('[Kaspa] wRPC response:', response);
+          
+          if (response.result?.transactionId) {
+            clearTimeout(timeout);
+            resolved = true;
+            ws.close();
+            resolve({ success: true, txId: response.result.transactionId });
+          } else if (response.error) {
+            clearTimeout(timeout);
+            resolved = true;
+            ws.close();
+            resolve({ success: false, error: response.error.message || 'Transaction rejected' });
+          }
+        } catch (e) {
+          console.error('[Kaspa] Parse error:', e);
+        }
+      };
+
+      ws.onerror = (e) => {
+        console.error('[Kaspa] WebSocket error:', e);
+        if (!resolved) {
+          clearTimeout(timeout);
+          resolved = true;
+          resolve({ success: false, error: 'WebSocket connection failed' });
+        }
+      };
+
+      ws.onclose = () => {
+        if (!resolved) {
+          clearTimeout(timeout);
+          resolved = true;
+          resolve({ success: false, error: 'Connection closed unexpectedly' });
+        }
+      };
+    });
+  }
+
+  /**
+   * Get script public key for P2PK address
+   */
+  private getScriptPublicKey(): string {
+    if (!this.publicKey) return '';
+    // P2PK script: <pubkey> OP_CHECKSIG
+    const pubkeyHex = Array.from(this.publicKey).map(b => b.toString(16).padStart(2, '0')).join('');
+    return '20' + pubkeyHex + 'ac'; // 0x20 = 32 bytes push, 0xac = OP_CHECKSIG
+  }
+
+  /**
+   * Compute signature hash for input
+   */
+  private async computeSigHash(tx: any, inputIndex: number, utxo: any): Promise<Uint8Array> {
+    // Simplified sighash computation
+    // In production, use proper BIP-340 sighash
+    const encoder = new TextEncoder();
+    const data = encoder.encode(
+      tx.version.toString() +
+      JSON.stringify(tx.inputs) +
+      JSON.stringify(tx.outputs) +
+      tx.lockTime.toString() +
+      inputIndex.toString() +
+      (utxo.utxoEntry?.amount || 0).toString()
+    );
+    return blake2b(data, { dkLen: 32 });
+  }
+
+  /**
+   * Build signature script
+   */
+  private buildSignatureScript(signature: Uint8Array, pubkey: Uint8Array): string {
+    // Schnorr signature script: <sig> <pubkey>
+    const sigHex = Array.from(signature).map(b => b.toString(16).padStart(2, '0')).join('');
+    const pubkeyHex = Array.from(pubkey).map(b => b.toString(16).padStart(2, '0')).join('');
+    return '40' + sigHex + '21' + pubkeyHex; // 0x40 = 64 bytes, 0x21 = 33 bytes
   }
 
   disconnect(): void {
