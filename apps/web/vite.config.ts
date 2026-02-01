@@ -18,12 +18,17 @@ export default defineConfig({
     proxy: {
       '/api': 'http://127.0.0.1:8787',
       '/ws': { target: 'ws://127.0.0.1:8787', ws: true }
+    },
+    fs: {
+      // Allow serving WASM files from node_modules
+      allow: ['..']
     }
   },
   optimizeDeps: {
-    exclude: ['kaspa'], // Don't pre-bundle WASM modules
+    exclude: ['kaspa-wasm32-sdk'], // Don't pre-bundle WASM modules
   },
   build: {
     target: 'esnext', // Required for top-level await
   },
+  assetsInclude: ['**/*.wasm'], // Include WASM files as assets
 })
