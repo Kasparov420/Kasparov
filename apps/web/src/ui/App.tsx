@@ -46,67 +46,37 @@ export default function App() {
     }
   }, [game?.status, game?.themeSeed])
 
-  // WebSocket sync with polling fallback for Vercel
+  // Poll for game updates (Vercel doesn't support WebSocket)
   useEffect(() => {
     if (!game?.id) return
-    let ws: WebSocket | null = null
-    let pollInterval: ReturnType<typeof setInterval> | null = null
-
-    const connectWs = () => {
-      try {
-        const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-        ws = new WebSocket(`${proto}://${location.host}/ws?game=${encodeURIComponent(game.id)}`)
-        ws.onmessage = (ev) => {
-          try {
-            const msg = JSON.parse(ev.data)
-            if (msg.type === 'game' && msg.game) {
-              setGame(msg.game)
-              if (msg.game.status === 'active' && screen !== 'playing') {
-                setScreen('playing')
-              }
-            }
-          } catch {
-            // ignore
-          }
-        }
-        ws.onerror = () => {
-          if (pollInterval) clearInterval(pollInterval)
-          pollInterval = setInterval(pollGame, 1000)
-        }
-        ws.onclose = () => {
-          if (pollInterval) clearInterval(pollInterval)
-          pollInterval = setInterval(pollGame, 1000)
-        }
-      } catch {
-        // WebSocket not available, use polling
-        if (pollInterval) clearInterval(pollInterval)
-        pollInterval = setInterval(pollGame, 1000)
-      }
-    }
-
+    
     const pollGame = async () => {
       try {
         const res = await fetch(`/api/games/${game.id}`)
         if (res.ok) {
           const data = await res.json()
           if (data.game) {
-            setGame(data.game)
-            if (data.game.status === 'active' && screen !== 'playing') {
-              setScreen('playing')
+            // Only update if something changed
+            if (JSON.stringify(data.game) !== JSON.stringify(game)) {
+              setGame(data.game)
+              if (data.game.status === 'active' && screen !== 'playing') {
+                setScreen('playing')
+              }
             }
           }
         }
       } catch {
-        // ignore
+        // ignore - will retry next interval
       }
     }
-
-    connectWs()
-
-    return () => {
-      if (ws) ws.close()
-      if (pollInterval) clearInterval(pollInterval)
-    }
+    
+    // Poll every 1.5 seconds
+    const pollInterval = setInterval(pollGame, 1500)
+    
+    // Also poll immediately on mount
+    pollGame()
+    
+    return () => clearInterval(pollInterval)
   }, [game?.id, screen])
 
   async function onConnectKasware() {

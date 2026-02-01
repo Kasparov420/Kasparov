@@ -2,6 +2,22 @@
 import React, { useState } from 'react'
 import '../styles.css'
 
+// Helper to derive private key from mnemonic (for display only)
+async function derivePrivateKeyHex(mnemonic: string): Promise<string> {
+  const { mnemonicToSeed } = await import('@scure/bip39')
+  const { HDKey } = await import('@scure/bip32')
+  
+  const seed = await mnemonicToSeed(mnemonic)
+  const hdKey = HDKey.fromMasterSeed(seed)
+  const derived = hdKey.derive("m/44'/111111'/0'/0/0")
+  
+  if (!derived.privateKey) throw new Error('Derivation failed')
+  
+  return Array.from(derived.privateKey)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
 export default function WalletModal({ open, onClose, onConnectKasware, onConnectKastle, onImportInternal, onImportPrivateKey, onGenerateMnemonic, wallets }: any) {
   const [view, setView] = useState<'list' | 'create' | 'import' | 'importKey'>('list')
   const [connecting, setConnecting] = useState<string | null>(null)
@@ -9,6 +25,8 @@ export default function WalletModal({ open, onClose, onConnectKasware, onConnect
   
   // Create flow
   const [newMnemonic, setNewMnemonic] = useState<string | null>(null)
+  const [newPrivateKey, setNewPrivateKey] = useState<string | null>(null)
+  const [showPrivateKey, setShowPrivateKey] = useState(false)
   
   // Import flow
   const [importMnemonic, setImportMnemonic] = useState('')
@@ -40,9 +58,14 @@ export default function WalletModal({ open, onClose, onConnectKasware, onConnect
     try {
       const mnemonic = await onGenerateMnemonic()
       setNewMnemonic(mnemonic)
+      
+      // Derive and show the private key
+      const privateKey = await derivePrivateKeyHex(mnemonic)
+      setNewPrivateKey(privateKey)
+      
       setView('create')
     } catch (e) {
-      setError('Failed to generate mnemonic: ' + (e instanceof Error ? e.message : String(e)))
+      setError('Failed to generate wallet: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
       setConnecting(null)
     }
@@ -157,23 +180,55 @@ export default function WalletModal({ open, onClose, onConnectKasware, onConnect
         {view === 'create' && (
             <>
                 <div className="modalHeader">
-                  <h2>Backup your specific key</h2>
+                  <h2>🔐 Backup Your Keys</h2>
                 </div>
                 <div className="modalContent">
                     <div className="warningBox">
-                        Write these 12 words down. This is your ONLY way to recover your funds.
-                        We do not store this.
+                        ⚠️ <strong>CRITICAL:</strong> Write these down and store them safely. 
+                        This is your ONLY way to recover your funds. We do NOT store this data.
                     </div>
-                    <div className="mnemonicBox">
-                        {newMnemonic?.split(' ').map((word, i) => (
-                            <span key={i} className="mnemonicWord"><span className="wordNum">{i+1}.</span> {word}</span>
-                        ))}
+                    
+                    <div className="keySection">
+                      <h3>📝 Seed Phrase (12 words)</h3>
+                      <p className="keyDescription">Use this to restore your wallet in any Kaspa wallet app.</p>
+                      <div className="mnemonicBox">
+                          {newMnemonic?.split(' ').map((word, i) => (
+                              <span key={i} className="mnemonicWord"><span className="wordNum">{i+1}.</span> {word}</span>
+                          ))}
+                      </div>
+                    </div>
+                    
+                    <div className="keySection">
+                      <h3>🔑 Private Key (64-hex)</h3>
+                      <p className="keyDescription">Alternative backup - can import directly into Kasware/Kastle.</p>
+                      <div className="privateKeyBox">
+                        <code className={showPrivateKey ? 'revealed' : 'hidden'}>
+                          {showPrivateKey ? newPrivateKey : '••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••'}
+                        </code>
+                        <button 
+                          className="revealBtn" 
+                          onClick={() => setShowPrivateKey(!showPrivateKey)}
+                        >
+                          {showPrivateKey ? '🙈 Hide' : '👁️ Reveal'}
+                        </button>
+                        {showPrivateKey && (
+                          <button 
+                            className="copyBtn"
+                            onClick={() => {
+                              navigator.clipboard.writeText(newPrivateKey || '')
+                              alert('Private key copied!')
+                            }}
+                          >
+                            📋 Copy
+                          </button>
+                        )}
+                      </div>
                     </div>
                     
                     <button className="primaryBtn fullWidth" onClick={handleCreateConfirm} disabled={connecting !== null}>
-                        {connecting ? 'Creating...' : 'I have saved them'}
+                        {connecting ? 'Creating...' : '✓ I have saved my keys securely'}
                     </button>
-                    <button className="textBtn fullWidth" onClick={() => setView('list')}>Back</button>
+                    <button className="textBtn fullWidth" onClick={() => { setView('list'); setNewPrivateKey(null); setShowPrivateKey(false); }}>Back</button>
                 </div>
             </>
         )}
