@@ -185,6 +185,64 @@ function KaspaSidePanel({ position }: { position: 'left' | 'right' }) {
   );
 }
 
+// Transaction Popup Component
+function TxPopup({ type, txId, error, onClose }: { 
+  type: string; 
+  txId?: string; 
+  error?: string;
+  onClose: () => void;
+}) {
+  const explorerUrl = txId ? `https://explorer.kaspa.org/txs/${txId}` : null;
+  
+  // Auto-close after 8 seconds
+  useEffect(() => {
+    const timer = setTimeout(onClose, 8000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className="tx-popup-overlay" onClick={onClose}>
+      <div className="tx-popup" onClick={(e) => e.stopPropagation()}>
+        <button className="tx-popup-close" onClick={onClose}>×</button>
+        
+        <div className="tx-popup-header">
+          <span className="tx-popup-icon">{txId ? '✅' : error ? '⚠️' : '⏳'}</span>
+          <h3>{type}</h3>
+        </div>
+        
+        {txId && (
+          <div className="tx-popup-body">
+            <p className="tx-label">Transaction ID</p>
+            <code className="tx-id">{txId.slice(0, 16)}...{txId.slice(-8)}</code>
+            <a 
+              href={explorerUrl!} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="tx-explorer-link"
+            >
+              🔍 View on Explorer
+            </a>
+          </div>
+        )}
+        
+        {error && (
+          <div className="tx-popup-error">
+            <p className="tx-error-msg">{error}</p>
+            <p className="tx-error-hint">Game will continue locally. Fund your wallet to record on-chain.</p>
+          </div>
+        )}
+        
+        {!txId && !error && (
+          <div className="tx-popup-loading">
+            <div className="tx-spinner"></div>
+            <p>Broadcasting to Kaspa network...</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Helper to derive private key hex from mnemonic
 async function derivePrivateKeyHex(mnemonic: string): Promise<string> {
   const { mnemonicToSeed } = await import('@scure/bip39')
@@ -222,12 +280,13 @@ export default function App() {
   const [showMnemonic, setShowMnemonic] = useState<string | null>(null);
   const [showPrivateKeyHex, setShowPrivateKeyHex] = useState<string | null>(null);
   const [privateKeyRevealed, setPrivateKeyRevealed] = useState(false);
-  const [wordCountChoice, setWordCountChoice] = useState<12 | 24 | 'hex'>(12);
+  const [wordCountChoice, setWordCountChoice] = useState<12 | 24>(12);
   const [showWordCountPicker, setShowWordCountPicker] = useState(false);
   const [importMode, setImportMode] = useState<'mnemonic' | 'privateKey' | 'nodeConfig' | false>(false);
   const [mnemonicInput, setMnemonicInput] = useState("");
   const [privateKeyInput, setPrivateKeyInput] = useState("");
   const [nodeEndpoint, setNodeEndpoint] = useState(getConfiguredEndpoint());
+  const [txPopup, setTxPopup] = useState<{ show: boolean; txId?: string; error?: string; type: string } | null>(null);
 
   // DON'T auto-connect from localStorage - user must explicitly import their wallet
   // The stored address is just a hint, not a real connection
@@ -266,11 +325,25 @@ export default function App() {
     setScreen("lobby");
 
     // Publish game-init to DAG
+    setTxPopup({ show: true, type: 'Creating Game', txId: undefined, error: undefined });
     const result = await kaspaService.publishGameInit(state.gameId);
-    if (result.success) {
+    
+    if (result.success && result.txId) {
       console.log("Game published to DAG:", result.txId);
+      setTxPopup({ show: true, type: 'Game Created!', txId: result.txId, error: undefined });
       
       // Mock: index our own event
+      await indexerService.mockIndexEvent({
+        type: "game-init",
+        gameId: state.gameId,
+        timestamp: Date.now(),
+        data: { whitePub: state.whitePub },
+      });
+    } else {
+      console.error("Failed to publish game:", result.error);
+      setTxPopup({ show: true, type: 'Game Created (Offline)', txId: undefined, error: result.error });
+      
+      // Still allow playing locally even if TX fails
       await indexerService.mockIndexEvent({
         type: "game-init",
         gameId: state.gameId,
@@ -303,11 +376,24 @@ export default function App() {
     setScreen("lobby");
 
     // Publish game-join to DAG
+    setTxPopup({ show: true, type: 'Joining Game', txId: undefined, error: undefined });
     const result = await kaspaService.publishGameJoin(gameId);
-    if (result.success) {
+    
+    if (result.success && result.txId) {
       console.log("Join published to DAG:", result.txId);
+      setTxPopup({ show: true, type: 'Game Joined!', txId: result.txId, error: undefined });
       
       // Mock: index our own event
+      await indexerService.mockIndexEvent({
+        type: "game-join",
+        gameId,
+        timestamp: Date.now(),
+        data: { blackPub: walletAddress },
+      });
+    } else {
+      console.error("Failed to publish join:", result.error);
+      setTxPopup({ show: true, type: 'Joined (Offline)', txId: undefined, error: result.error });
+      
       await indexerService.mockIndexEvent({
         type: "game-join",
         gameId,
@@ -350,10 +436,21 @@ export default function App() {
         newState.moves.length
       );
       
-      if (publishResult.success) {
+      if (publishResult.success && publishResult.txId) {
         console.log("Move published to DAG:", publishResult.txId);
+        setTxPopup({ show: true, type: 'Move Recorded!', txId: publishResult.txId, error: undefined });
         
         // Mock: index our own event
+        await indexerService.mockIndexEvent({
+          type: "move",
+          gameId: newState.gameId,
+          timestamp: Date.now(),
+          data: { uci, plyNumber: newState.moves.length },
+        });
+      } else {
+        // Move made locally but TX failed - show error but continue game
+        setTxPopup({ show: true, type: 'Move (Offline)', txId: undefined, error: publishResult.error });
+        
         await indexerService.mockIndexEvent({
           type: "move",
           gameId: newState.gameId,
@@ -391,8 +488,11 @@ export default function App() {
         newState.moves.length
       );
       
-      if (result.success) {
+      if (result.success && result.txId) {
         console.log("Promotion published to DAG:", result.txId);
+        setTxPopup({ show: true, type: 'Move Recorded!', txId: result.txId, error: undefined });
+      } else {
+        setTxPopup({ show: true, type: 'Move (Offline)', txId: undefined, error: result.error });
       }
     }
     
@@ -435,33 +535,17 @@ export default function App() {
 
   const handleCreateWallet = async () => {
     try {
-      if (wordCountChoice === 'hex') {
-        // Generate raw 256-bit private key (no mnemonic)
-        const randomBytes = crypto.getRandomValues(new Uint8Array(32));
-        const hexKey = Array.from(randomBytes)
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-        
-        await kaspaService.initializeWithPrivateKey(hexKey);
-        const address = kaspaService.getAddress();
-        setWalletAddress(address);
-        setShowMnemonic(null);
-        setShowPrivateKeyHex(hexKey);
-        setPrivateKeyRevealed(false);
-        setShowWordCountPicker(false);
-      } else {
-        const mnemonic = await kaspaService.generateNewMnemonic(wordCountChoice);
-        await kaspaService.initialize(mnemonic);
-        const address = kaspaService.getAddress();
-        setWalletAddress(address);
-        setShowMnemonic(mnemonic);
-        
-        // Derive and show private key
-        const privKey = await derivePrivateKeyHex(mnemonic);
-        setShowPrivateKeyHex(privKey);
-        setPrivateKeyRevealed(false);
-        setShowWordCountPicker(false);
-      }
+      const mnemonic = await kaspaService.generateNewMnemonic(wordCountChoice);
+      await kaspaService.initialize(mnemonic);
+      const address = kaspaService.getAddress();
+      setWalletAddress(address);
+      setShowMnemonic(mnemonic);
+      
+      // Derive and show private key (included with both 12 and 24 word options)
+      const privKey = await derivePrivateKeyHex(mnemonic);
+      setShowPrivateKeyHex(privKey);
+      setPrivateKeyRevealed(false);
+      setShowWordCountPicker(false);
     } catch (error) {
       console.error('Failed to create wallet:', error);
       alert('Failed to create wallet: ' + (error instanceof Error ? error.message : String(error)));
@@ -684,7 +768,7 @@ export default function App() {
             </div>
             <p className="subtitle">Select the format for your new wallet</p>
             
-            <div className="type-grid">
+            <div className="type-grid two-col">
               <button 
                 onClick={() => setWordCountChoice(12)}
                 className={`type-card ${wordCountChoice === 12 ? 'selected' : ''}`}
@@ -706,21 +790,12 @@ export default function App() {
                 <span className="type-desc">Maximum</span>
                 <span className="type-bits">256-bit</span>
               </button>
-              
-              <button 
-                onClick={() => setWordCountChoice('hex')}
-                className={`type-card ${wordCountChoice === 'hex' ? 'selected' : ''}`}
-              >
-                <span className="type-icon">🔐</span>
-                <span className="type-value">64</span>
-                <span className="type-label">Hex Key</span>
-                <span className="type-desc">Raw Key</span>
-                <span className="type-bits">256-bit</span>
-              </button>
             </div>
             
+            <p className="type-note">🔑 Both options include the 64-character hex private key</p>
+            
             <button onClick={handleCreateWallet} className="btn btn-primary btn-large" style={{ width: '100%' }}>
-              ⚡ {wordCountChoice === 'hex' ? 'Generate Hex Key' : `Generate ${wordCountChoice}-Word Phrase`}
+              ⚡ Generate {wordCountChoice}-Word Wallet
             </button>
             <button onClick={() => setShowWordCountPicker(false)} className="btn btn-ghost" style={{ width: '100%', marginTop: '10px' }}>
               ← Back to options
@@ -806,11 +881,11 @@ export default function App() {
                 <p className="import-hint">💡 Words should be separated by spaces</p>
               </div>
               <div className="import-actions">
+                <button onClick={() => setImportMode(false)} className="btn-back-icon">
+                  ←
+                </button>
                 <button onClick={handleImportWallet} className="btn-import-primary">
                   <span>🔐</span> Restore Wallet
-                </button>
-                <button onClick={() => setImportMode(false)} className="btn-import-back">
-                  ← Back
                 </button>
               </div>
             </div>
@@ -833,57 +908,85 @@ export default function App() {
                   className="import-input mono"
                   spellCheck={false}
                 />
-                <div className="import-hint-box">
-                  <span className="hint-icon">ℹ️</span>
-                  <div>
-                    <strong>How to get your private key:</strong>
-                    <p>Kasware/Kastle → Settings → Export Private Key</p>
-                  </div>
-                </div>
               </div>
               <div className="import-actions">
+                <button onClick={() => setImportMode(false)} className="btn-back-icon">
+                  ←
+                </button>
                 <button onClick={handleImportPrivateKey} className="btn-import-primary">
                   <span>🔐</span> Restore Wallet
-                </button>
-                <button onClick={() => setImportMode(false)} className="btn-import-back">
-                  ← Back
                 </button>
               </div>
             </div>
           ) : importMode === 'nodeConfig' ? (
-            <div className="wallet-import">
-              <div className="chess-header small">
-                <span className="chess-piece">⚙️</span>
-                <h3>Node Config</h3>
-                <span className="chess-piece">⚙️</span>
+            <div className="wallet-import-card">
+              <div className="import-header">
+                <div className="import-icon-wrap node">
+                  <span className="import-icon">🔗</span>
+                </div>
+                <h3>Node Configuration</h3>
+                <p>Connect to a Kaspa node for blockchain access</p>
               </div>
-              <p className="subtitle">Connect to your local node or public endpoint</p>
-              <input
-                type="text"
-                value={nodeEndpoint}
-                onChange={(e) => setNodeEndpoint(e.target.value)}
-                placeholder="ws://localhost:17110"
-                className="mnemonic-input mono"
-              />
-              <div className="endpoint-hints">
-                <strong>Common endpoints:</strong>
-                <code>ws://localhost:17110</code> Local mainnet
-                <code>ws://localhost:17210</code> Local testnet
-                <code>wss://kaspa.aspectron.com/mainnet</code> Public
+              <div className="import-body">
+                <label className="import-label">WebSocket Endpoint</label>
+                <input
+                  type="text"
+                  value={nodeEndpoint}
+                  onChange={(e) => setNodeEndpoint(e.target.value)}
+                  placeholder="wss://kaspa.aspectron.com/mainnet"
+                  className="import-input mono"
+                  spellCheck={false}
+                />
+                
+                <div className="node-presets">
+                  <label className="import-label">Quick Select</label>
+                  <div className="preset-grid">
+                    <button 
+                      className={`preset-btn ${nodeEndpoint === 'wss://kaspa.aspectron.com/mainnet' ? 'active' : ''}`}
+                      onClick={() => setNodeEndpoint('wss://kaspa.aspectron.com/mainnet')}
+                    >
+                      <span className="preset-icon">🌐</span>
+                      <div className="preset-info">
+                        <strong>Public Mainnet</strong>
+                        <span>Recommended</span>
+                      </div>
+                    </button>
+                    <button 
+                      className={`preset-btn ${nodeEndpoint === 'ws://localhost:17110' ? 'active' : ''}`}
+                      onClick={() => setNodeEndpoint('ws://localhost:17110')}
+                    >
+                      <span className="preset-icon">🏠</span>
+                      <div className="preset-info">
+                        <strong>Local Mainnet</strong>
+                        <span>Port 17110</span>
+                      </div>
+                    </button>
+                    <button 
+                      className={`preset-btn ${nodeEndpoint === 'ws://localhost:17210' ? 'active' : ''}`}
+                      onClick={() => setNodeEndpoint('ws://localhost:17210')}
+                    >
+                      <span className="preset-icon">🧪</span>
+                      <div className="preset-info">
+                        <strong>Local Testnet</strong>
+                        <span>Port 17210</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="wallet-import-buttons">
+              <div className="import-actions">
+                <button onClick={() => setImportMode(false)} className="btn-back-icon">
+                  ←
+                </button>
                 <button 
                   onClick={() => {
                     setWrpcEndpoint(nodeEndpoint);
                     alert('Node endpoint saved!');
                     setImportMode(false);
                   }} 
-                  className="btn btn-primary"
+                  className="btn-import-primary"
                 >
-                  Save Configuration
-                </button>
-                <button onClick={() => setImportMode(false)} className="btn btn-secondary">
-                  Back
+                  <span>💾</span> Save Configuration
                 </button>
               </div>
             </div>
@@ -947,6 +1050,15 @@ export default function App() {
             </button>
           </div>
         </div>
+        
+        {txPopup?.show && (
+          <TxPopup 
+            type={txPopup.type} 
+            txId={txPopup.txId} 
+            error={txPopup.error}
+            onClose={() => setTxPopup(null)} 
+          />
+        )}
       </div>
     );
   }
@@ -977,6 +1089,15 @@ export default function App() {
             </button>
           )}
         </div>
+        
+        {txPopup?.show && (
+          <TxPopup 
+            type={txPopup.type} 
+            txId={txPopup.txId} 
+            error={txPopup.error}
+            onClose={() => setTxPopup(null)} 
+          />
+        )}
       </div>
     );
   }
@@ -1036,6 +1157,15 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {txPopup?.show && (
+          <TxPopup 
+            type={txPopup.type} 
+            txId={txPopup.txId} 
+            error={txPopup.error}
+            onClose={() => setTxPopup(null)} 
+          />
         )}
       </div>
     );

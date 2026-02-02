@@ -1,7 +1,7 @@
 {
-  "installCommand": "cd kaspa-chess-web && npm install",
-  "buildCommand": "cd kaspa-chess-web && npm run build",
-  "outputDirectory": "kaspa-chess-web/dist",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build --workspace=apps/web",
+  "outputDirectory": "apps/web/dist",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
