@@ -10,6 +10,181 @@ import "./App.css";
 
 type Screen = "wallet-setup" | "welcome" | "lobby" | "playing";
 
+// Kaspa network stats interface
+interface KaspaNetworkStats {
+  price: number;
+  priceChange24h: number;
+  hashrate: number;        // in TH/s from API
+  blueScore: number;
+  difficulty: number;
+  marketCap: number;
+  circulatingSupply: number;
+  blockReward: number;
+  dagTips: number;         // number of DAG tips
+  daaScore: number;        // DAA score
+}
+
+// Side panel component for Kaspa stats
+function KaspaSidePanel({ position }: { position: 'left' | 'right' }) {
+  const [stats, setStats] = useState<KaspaNetworkStats | null>(null);
+  
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        // Fetch all Kaspa stats in parallel - using Kaspa API for price (more reliable)
+        const [kasPriceRes, cgPriceRes, hashrateRes, blueScoreRes, supplyRes, rewardRes, networkRes] = await Promise.allSettled([
+          fetch('https://api.kaspa.org/info/price'),
+          fetch('https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_24hr_change=true'),
+          fetch('https://api.kaspa.org/info/hashrate'),
+          fetch('https://api.kaspa.org/info/virtual-chain-blue-score'),
+          fetch('https://api.kaspa.org/info/coinsupply'),
+          fetch('https://api.kaspa.org/info/blockreward'),
+          fetch('https://api.kaspa.org/info/network')
+        ]);
+        
+        let price = 0, priceChange = 0;
+        let hashrate = 0, blueScore = 0, circulatingSupply = 0, blockReward = 0;
+        let difficulty = 0, dagTips = 0, daaScore = 0;
+        
+        // Get price from Kaspa API (more reliable, updates faster)
+        if (kasPriceRes.status === 'fulfilled' && kasPriceRes.value.ok) {
+          const data = await kasPriceRes.value.json();
+          price = data.price || 0;
+        }
+        
+        // Get 24h change from CoinGecko (Kaspa API doesn't have this)
+        if (cgPriceRes.status === 'fulfilled' && cgPriceRes.value.ok) {
+          const data = await cgPriceRes.value.json();
+          priceChange = data.kaspa?.usd_24h_change || 0;
+          // Fallback price if Kaspa API failed
+          if (!price) price = data.kaspa?.usd || 0;
+        }
+        
+        if (hashrateRes.status === 'fulfilled' && hashrateRes.value.ok) {
+          const data = await hashrateRes.value.json();
+          hashrate = data.hashrate || 0; // TH/s
+        }
+        
+        if (blueScoreRes.status === 'fulfilled' && blueScoreRes.value.ok) {
+          const data = await blueScoreRes.value.json();
+          blueScore = data.blueScore || 0;
+        }
+        
+        if (supplyRes.status === 'fulfilled' && supplyRes.value.ok) {
+          const data = await supplyRes.value.json();
+          // Supply is in sompi (1 KAS = 100,000,000 sompi)
+          circulatingSupply = parseInt(data.circulatingSupply || '0') / 1e8;
+        }
+        
+        if (rewardRes.status === 'fulfilled' && rewardRes.value.ok) {
+          const data = await rewardRes.value.json();
+          blockReward = data.blockreward || 0;
+        }
+        
+        if (networkRes.status === 'fulfilled' && networkRes.value.ok) {
+          const data = await networkRes.value.json();
+          difficulty = parseFloat(data.difficulty) || 0;
+          dagTips = data.tipHashes?.length || 0;
+          daaScore = parseInt(data.virtualDaaScore) || 0;
+        }
+        
+        // Calculate market cap from price × circulating supply
+        const marketCap = price * circulatingSupply;
+        
+        setStats({
+          price,
+          priceChange24h: priceChange,
+          hashrate,
+          blueScore,
+          difficulty,
+          marketCap,
+          circulatingSupply,
+          blockReward,
+          dagTips,
+          daaScore,
+        });
+      } catch (e) {
+        console.error('[KaspaStats] Fetch error:', e);
+      }
+    };
+    
+    fetchStats();
+    // Refresh every 3 seconds for real-time data
+    const interval = setInterval(fetchStats, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatNumber = (n: number, decimals = 2) => {
+    if (n >= 1e12) return (n / 1e12).toFixed(decimals) + 'T';
+    if (n >= 1e9) return (n / 1e9).toFixed(decimals) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(decimals) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(decimals) + 'K';
+    return n.toFixed(decimals);
+  };
+
+  const formatHashrate = (th: number) => {
+    if (th >= 1e6) return (th / 1e6).toFixed(2) + ' EH/s';
+    if (th >= 1e3) return (th / 1e3).toFixed(2) + ' PH/s';
+    return th.toFixed(2) + ' TH/s';
+  };
+
+  const leftStats = [
+    { label: 'KAS Price', value: stats ? `$${stats.price.toFixed(4)}` : '---', change: stats?.priceChange24h },
+    { label: 'Hashrate', value: stats ? formatHashrate(stats.hashrate) : '---' },
+    { label: 'Market Cap', value: stats ? `$${formatNumber(stats.marketCap)}` : '---' },
+    { label: 'Block Reward', value: stats ? `${stats.blockReward.toFixed(2)} KAS` : '---' },
+  ];
+
+  const rightStats = [
+    { label: 'Blue Score', value: stats ? formatNumber(stats.blueScore, 0) : '---' },
+    { label: 'DAA Score', value: stats ? formatNumber(stats.daaScore, 0) : '---' },
+    { label: 'BPS / Block Time', value: '10 BPS (0.1s)' },
+    { label: 'Circulating', value: stats ? `${formatNumber(stats.circulatingSupply)} KAS` : '---' },
+  ];
+
+  const items = position === 'left' ? leftStats : rightStats;
+
+  return (
+    <div className={`kaspa-side-panel ${position}`}>
+      <div className="side-panel-header">
+        <span className="kaspa-hex">⬡</span>
+        <span>{position === 'left' ? 'KASPA NETWORK' : 'LIVE STATS'}</span>
+      </div>
+      <div className="side-panel-stats">
+        {items.map((item, i) => (
+          <div key={i} className="side-stat">
+            <div className="side-stat-content">
+              <span className="side-stat-label">{item.label}</span>
+              <span className="side-stat-value">{item.value}</span>
+              {item.change !== undefined && (
+                <span className={`side-stat-change ${item.change >= 0 ? 'positive' : 'negative'}`}>
+                  {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {position === 'right' && (
+        <a 
+          href="https://kas.coffee/kasparov" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="donate-button"
+        >
+          <span className="donate-icon">☕</span>
+          <span>Support Kasparov</span>
+        </a>
+      )}
+      <div className="side-panel-decoration">
+        {[...Array(8)].map((_, i) => (
+          <div key={i} className={`chess-square ${i % 2 === (position === 'left' ? 0 : 1) ? 'light' : 'dark'}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Helper to derive private key hex from mnemonic
 async function derivePrivateKeyHex(mnemonic: string): Promise<string> {
   const { mnemonicToSeed } = await import('@scure/bip39')
@@ -31,6 +206,16 @@ export default function App() {
   const [game, setGame] = useState<ChessGame | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [theme, setTheme] = useState<Theme>(randomTheme());
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('kasparov-theme');
+    return saved ? saved === 'dark' : true;
+  });
+
+  // Apply theme to document
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    localStorage.setItem('kasparov-theme', darkMode ? 'dark' : 'light');
+  }, [darkMode]);
   const [showPromotion, setShowPromotion] = useState(false);
   const [promotionMove, setPromotionMove] = useState<{ from: Square; to: Square } | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -350,7 +535,8 @@ export default function App() {
     if (showMnemonic) {
       const wordCount = showMnemonic.split(" ").length;
       return (
-        <div className="app">
+        <div className="app wallet-setup-screen">
+          <KaspaSidePanel position="left" />
           <div className="wallet-setup chess-theme">
             <div className="chess-header">
               <span className="chess-piece">♜</span>
@@ -420,6 +606,7 @@ export default function App() {
               ♔ Enter the Arena
             </button>
           </div>
+          <KaspaSidePanel position="right" />
         </div>
       );
     }
@@ -427,7 +614,8 @@ export default function App() {
     // Show hex-only backup screen
     if (showPrivateKeyHex && !showMnemonic) {
       return (
-        <div className="app">
+        <div className="app wallet-setup-screen">
+          <KaspaSidePanel position="left" />
           <div className="wallet-setup chess-theme">
             <div className="chess-header">
               <span className="chess-piece">♝</span>
@@ -478,6 +666,7 @@ export default function App() {
               ♔ Enter the Arena
             </button>
           </div>
+          <KaspaSidePanel position="right" />
         </div>
       );
     }
@@ -485,7 +674,8 @@ export default function App() {
     // Word count picker
     if (showWordCountPicker) {
       return (
-        <div className="app">
+        <div className="app wallet-setup-screen">
+          <KaspaSidePanel position="left" />
           <div className="wallet-setup chess-theme">
             <div className="chess-header">
               <span className="chess-piece">♛</span>
@@ -536,13 +726,24 @@ export default function App() {
               ← Back to options
             </button>
           </div>
+          <KaspaSidePanel position="right" />
         </div>
       );
     }
 
     return (
-      <div className="app">
+      <div className="app wallet-setup-screen">
+        <KaspaSidePanel position="left" />
         <div className="wallet-setup chess-theme">
+          {/* Theme Toggle */}
+          <button 
+            className="theme-toggle"
+            onClick={() => setDarkMode(!darkMode)}
+            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {darkMode ? '☀️' : '🌙'}
+          </button>
+          
           <div className="chess-header main">
             <span className="chess-piece large">♔</span>
             <div>
@@ -584,50 +785,67 @@ export default function App() {
               </div>
             </div>
           ) : importMode === 'mnemonic' ? (
-            <div className="wallet-import">
-              <div className="chess-header small">
-                <span className="chess-piece">♞</span>
-                <h3>Import Wallet</h3>
-                <span className="chess-piece">♞</span>
+            <div className="wallet-import-card">
+              <div className="import-header">
+                <div className="import-icon-wrap">
+                  <span className="import-icon">📝</span>
+                </div>
+                <h3>Import Recovery Phrase</h3>
+                <p>Enter your 12 or 24-word seed phrase to restore your wallet</p>
               </div>
-              <p className="subtitle">Enter your 12 or 24-word recovery phrase</p>
-              <textarea
-                value={mnemonicInput}
-                onChange={(e) => setMnemonicInput(e.target.value)}
-                placeholder="Enter your seed phrase, words separated by spaces..."
-                className="mnemonic-input"
-                rows={4}
-              />
-              <div className="wallet-import-buttons">
-                <button onClick={handleImportWallet} className="btn btn-primary">
-                  ♜ Restore Wallet
+              <div className="import-body">
+                <label className="import-label">Recovery Phrase</label>
+                <textarea
+                  value={mnemonicInput}
+                  onChange={(e) => setMnemonicInput(e.target.value)}
+                  placeholder="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+                  className="import-textarea"
+                  rows={4}
+                  spellCheck={false}
+                />
+                <p className="import-hint">💡 Words should be separated by spaces</p>
+              </div>
+              <div className="import-actions">
+                <button onClick={handleImportWallet} className="btn-import-primary">
+                  <span>🔐</span> Restore Wallet
                 </button>
-                <button onClick={() => setImportMode(false)} className="btn btn-ghost">
+                <button onClick={() => setImportMode(false)} className="btn-import-back">
                   ← Back
                 </button>
               </div>
             </div>
           ) : importMode === 'privateKey' ? (
-            <div className="wallet-import">
-              <div className="chess-header small">
-                <span className="chess-piece">♝</span>
-                <h3>Import Key</h3>
-                <span className="chess-piece">♝</span>
+            <div className="wallet-import-card">
+              <div className="import-header">
+                <div className="import-icon-wrap key">
+                  <span className="import-icon">🔑</span>
+                </div>
+                <h3>Import Private Key</h3>
+                <p>Enter your 64-character hexadecimal private key</p>
               </div>
-              <p className="subtitle">Enter your 64-character hex private key</p>
-              <input
-                type="password"
-                value={privateKeyInput}
-                onChange={(e) => setPrivateKeyInput(e.target.value)}
-                placeholder="64-character hexadecimal private key"
-                className="mnemonic-input mono"
-              />
-              <p className="input-hint">Export from Kasware/Kastle: Settings → Export Private Key</p>
-              <div className="wallet-import-buttons">
-                <button onClick={handleImportPrivateKey} className="btn btn-primary">
-                  ♝ Restore Wallet
+              <div className="import-body">
+                <label className="import-label">Private Key (Hex)</label>
+                <input
+                  type="password"
+                  value={privateKeyInput}
+                  onChange={(e) => setPrivateKeyInput(e.target.value)}
+                  placeholder="a1b2c3d4e5f6...64 characters total"
+                  className="import-input mono"
+                  spellCheck={false}
+                />
+                <div className="import-hint-box">
+                  <span className="hint-icon">ℹ️</span>
+                  <div>
+                    <strong>How to get your private key:</strong>
+                    <p>Kasware/Kastle → Settings → Export Private Key</p>
+                  </div>
+                </div>
+              </div>
+              <div className="import-actions">
+                <button onClick={handleImportPrivateKey} className="btn-import-primary">
+                  <span>🔐</span> Restore Wallet
                 </button>
-                <button onClick={() => setImportMode(false)} className="btn btn-ghost">
+                <button onClick={() => setImportMode(false)} className="btn-import-back">
                   ← Back
                 </button>
               </div>
@@ -692,6 +910,7 @@ export default function App() {
             </div>
           )}
         </div>
+        <KaspaSidePanel position="right" />
       </div>
     );
   }

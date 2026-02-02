@@ -5,6 +5,9 @@
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
 
+/* =====================================================
+   THEME VARIABLES - Dark Mode (Default)
+   ===================================================== */
 :root {
   /* Core Dark Theme - Cypherpunk Aesthetic */
   --bg-void: #0a0a0f;
@@ -13,6 +16,18 @@
   --bg-medium: #242430;
   --bg-light: #2e2e3d;
   --bg-lighter: #3a3a4d;
+  
+  /* Card & Surface */
+  --card-bg: rgba(30, 30, 40, 0.95);
+  --card-border: rgba(73, 234, 203, 0.2);
+  --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  
+  /* Input */
+  --input-bg: #1a1a24;
+  --input-border: rgba(255, 255, 255, 0.1);
+  --input-focus-border: #49eacb;
+  --input-text: #e4e4ed;
+  --input-placeholder: #6a6a7a;
   
   /* Chess Board Colors */
   --sq-light: #e8e8d5;
@@ -1548,7 +1563,238 @@ body::before {
   font-family: 'JetBrains Mono', monospace;
 }
 
+/* =====================================================
+   KASPA SIDE PANELS - Network Stats Display
+   ===================================================== */
+
+.wallet-setup-screen {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.wallet-setup-center {
+  flex: 0 1 480px;
+  min-width: 320px;
+}
+
+.kaspa-side-panel {
+  flex: 0 0 220px;
+  background: linear-gradient(180deg, rgba(73, 234, 203, 0.05) 0%, rgba(0, 0, 0, 0.3) 100%);
+  border: 1px solid rgba(73, 234, 203, 0.2);
+  border-radius: 16px;
+  padding: 20px 18px;
+  position: sticky;
+  top: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.kaspa-side-panel.left {
+  border-left: 3px solid rgba(73, 234, 203, 0.4);
+}
+
+.kaspa-side-panel.right {
+  border-right: 3px solid rgba(73, 234, 203, 0.4);
+}
+
+.side-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid rgba(73, 234, 203, 0.2);
+  font-size: 13px;
+  font-weight: 700;
+  color: #49eacb;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+
+.side-panel-header .kaspa-hex {
+  font-size: 18px;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.7; text-shadow: 0 0 5px rgba(73, 234, 203, 0.3); }
+  50% { opacity: 1; text-shadow: 0 0 15px rgba(73, 234, 203, 0.6); }
+}
+
+.side-panel-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.side-stat {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  border-left: 3px solid rgba(73, 234, 203, 0.3);
+  transition: all 0.2s ease;
+}
+
+.side-stat:hover {
+  background: rgba(73, 234, 203, 0.05);
+  border-left-color: #49eacb;
+}
+
+.side-stat-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+
+.side-stat-label {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 500;
+}
+
+.side-stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  font-family: 'JetBrains Mono', monospace;
+  word-break: break-all;
+  text-shadow: 0 0 10px rgba(73, 234, 203, 0.2);
+}
+
+.side-stat-change {
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.side-stat-change.positive {
+  color: #4caf50;
+}
+
+.side-stat-change.negative {
+  color: #f44336;
+}
+
+/* Donate Button */
+.donate-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(73, 234, 203, 0.15) 0%, rgba(73, 234, 203, 0.05) 100%);
+  border: 2px solid rgba(73, 234, 203, 0.4);
+  border-radius: 12px;
+  color: #49eacb;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.donate-button:hover {
+  background: linear-gradient(135deg, rgba(73, 234, 203, 0.25) 0%, rgba(73, 234, 203, 0.1) 100%);
+  border-color: #49eacb;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(73, 234, 203, 0.3);
+}
+
+.donate-button .donate-icon {
+  font-size: 18px;
+}
+
+/* Decorative chess squares at bottom */
+.side-panel-decoration {
+  display: flex;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(73, 234, 203, 0.15);
+  gap: 2px;
+}
+
+.side-panel-decoration .chess-square {
+  flex: 1;
+  aspect-ratio: 1;
+  max-width: 24px;
+  border-radius: 3px;
+}
+
+.side-panel-decoration .chess-square.light {
+  background: rgba(73, 234, 203, 0.2);
+}
+
+.side-panel-decoration .chess-square.dark {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* Loading state animation */
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
 /* Responsive */
+@media (max-width: 900px) {
+  .wallet-setup-screen {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .kaspa-side-panel {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 480px;
+    position: relative;
+    top: 0;
+  }
+  
+  .kaspa-side-panel.left {
+    order: -1;
+    border-left: none;
+    border-top: 3px solid rgba(73, 234, 203, 0.4);
+  }
+  
+  .kaspa-side-panel.right {
+    order: 1;
+    border-right: none;
+    border-bottom: 3px solid rgba(73, 234, 203, 0.4);
+  }
+  
+  .side-panel-stats {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  
+  .side-stat {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 80px;
+  }
+  
+  .side-panel-decoration {
+    display: none;
+  }
+}
+
 @media (max-width: 480px) {
   .type-grid {
     grid-template-columns: 1fr;
@@ -1577,4 +1823,318 @@ body::before {
   .chess-piece.large {
     display: none;
   }
+  
+  .kaspa-side-panel {
+    padding: 12px;
+  }
+  
+  .side-panel-header {
+    font-size: 10px;
+  }
+  
+  .side-stat-value {
+    font-size: 12px;
+  }
+}
+
+/* =====================================================
+   LIGHT THEME
+   ===================================================== */
+[data-theme="light"] {
+  --bg-void: #f5f5f7;
+  --bg-darkest: #e8e8ed;
+  --bg-dark: #ffffff;
+  --bg-medium: #f0f0f5;
+  --bg-light: #e0e0e8;
+  --bg-lighter: #d5d5e0;
+  
+  --card-bg: rgba(255, 255, 255, 0.98);
+  --card-border: rgba(73, 234, 203, 0.3);
+  --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  
+  --input-bg: #ffffff;
+  --input-border: rgba(0, 0, 0, 0.15);
+  --input-focus-border: #2eb8a0;
+  --input-text: #1a1a24;
+  --input-placeholder: #9898a8;
+  
+  --text-bright: #0a0a0f;
+  --text-primary: #1a1a24;
+  --text-secondary: #4a4a5a;
+  --text-muted: #7a7a8a;
+  --text-code: #2eb8a0;
+  
+  --kaspa-primary: #2eb8a0;
+  --kaspa-glow: rgba(46, 184, 160, 0.2);
+}
+
+[data-theme="light"] .app {
+  background: linear-gradient(180deg, #f5f5f7 0%, #e8e8ed 100%);
+}
+
+[data-theme="light"] .wallet-setup {
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+[data-theme="light"] .kaspa-side-panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(240, 240, 245, 0.9) 100%);
+  border-color: var(--card-border);
+}
+
+[data-theme="light"] .side-stat {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .side-stat:hover {
+  background: rgba(46, 184, 160, 0.08);
+}
+
+[data-theme="light"] .side-stat-value {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .chess-piece {
+  color: var(--kaspa-primary);
+}
+
+/* =====================================================
+   THEME TOGGLE BUTTON
+   ===================================================== */
+.theme-toggle {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid var(--card-border);
+  background: var(--card-bg);
+  cursor: pointer;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+}
+
+.theme-toggle:hover {
+  transform: scale(1.1);
+  border-color: var(--kaspa-primary);
+  box-shadow: 0 6px 20px rgba(73, 234, 203, 0.25);
+}
+
+/* =====================================================
+   WALLET IMPORT CARD - Modern Design
+   ===================================================== */
+.wallet-import-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 32px;
+  max-width: 420px;
+  margin: 0 auto;
+  box-shadow: var(--card-shadow);
+  position: relative;
+  overflow: hidden;
+}
+
+.wallet-import-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--kaspa-primary), var(--cyber-blue));
+}
+
+.import-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.import-icon-wrap {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 16px;
+  background: linear-gradient(135deg, rgba(73, 234, 203, 0.15) 0%, rgba(73, 234, 203, 0.05) 100%);
+  border: 2px solid rgba(73, 234, 203, 0.3);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.import-icon-wrap.key {
+  background: linear-gradient(135deg, rgba(255, 170, 0, 0.15) 0%, rgba(255, 170, 0, 0.05) 100%);
+  border-color: rgba(255, 170, 0, 0.3);
+}
+
+.import-icon {
+  font-size: 32px;
+}
+
+.import-header h3 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+
+.import-header p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.import-body {
+  margin-bottom: 24px;
+}
+
+.import-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+
+.import-textarea {
+  width: 100%;
+  padding: 16px;
+  background: var(--input-bg);
+  border: 2px solid var(--input-border);
+  border-radius: 12px;
+  font-size: 15px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--input-text);
+  resize: none;
+  transition: all 0.2s ease;
+  line-height: 1.6;
+}
+
+.import-textarea::placeholder {
+  color: var(--input-placeholder);
+  font-size: 13px;
+}
+
+.import-textarea:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 4px var(--kaspa-glow);
+}
+
+.import-input {
+  width: 100%;
+  padding: 16px;
+  background: var(--input-bg);
+  border: 2px solid var(--input-border);
+  border-radius: 12px;
+  font-size: 15px;
+  color: var(--input-text);
+  transition: all 0.2s ease;
+}
+
+.import-input.mono {
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 1px;
+}
+
+.import-input::placeholder {
+  color: var(--input-placeholder);
+}
+
+.import-input:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 4px var(--kaspa-glow);
+}
+
+.import-hint {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.import-hint-box {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: rgba(73, 234, 203, 0.08);
+  border: 1px solid rgba(73, 234, 203, 0.2);
+  border-radius: 10px;
+}
+
+.import-hint-box .hint-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.import-hint-box strong {
+  display: block;
+  font-size: 12px;
+  color: var(--kaspa-primary);
+  margin-bottom: 4px;
+}
+
+.import-hint-box p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.import-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-import-primary {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, #49eacb 0%, #2eb8a0 100%);
+  border: none;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0a0a0f;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(73, 234, 203, 0.3);
+}
+
+.btn-import-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(73, 234, 203, 0.4);
+}
+
+.btn-import-primary span {
+  font-size: 18px;
+}
+
+.btn-import-back {
+  padding: 16px 20px;
+  background: transparent;
+  border: 2px solid var(--input-border);
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-import-back:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
 }
