@@ -573,8 +573,10 @@ export function getWallet(): KaspaWallet {
   return walletInstance;
 }
 
-export function generateMnemonic(): string {
-  return bip39.generateMnemonic(wordlist, 128);
+export function generateMnemonic(wordCount: 12 | 24 = 12): string {
+  // 128 bits = 12 words, 256 bits = 24 words
+  const strength = wordCount === 24 ? 256 : 128;
+  return bip39.generateMnemonic(wordlist, strength);
 }
 
 export function validateMnemonic(mnemonic: string): boolean {

@@ -3,6 +3,7 @@ import BoardStage from './components/BoardStage'
 import TopBar from './components/TopBar'
 import RightPanel from './components/RightPanel'
 import WalletModal from './components/WalletModal'
+import KaspaStatsBar from './components/KaspaStatsBar'
 import { detectWallets, connectKasware, connectKastle, type WalletSession } from '../wallet/wallet'
 import DonateKasparov from './components/DonateKasparov'
 import { themeFromSeed, randomTheme, type Theme } from '../theme'
@@ -223,8 +224,8 @@ export default function App() {
     return false
   }
 
-  async function onGenerateMnemonic() {
-    return await kaspaService.generateNewMnemonic()
+  async function onGenerateMnemonic(wordCount: 12 | 24 = 12) {
+    return await kaspaService.generateNewMnemonic(wordCount)
   }
 
   const myColor = game
@@ -245,6 +246,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <KaspaStatsBar />
       <TopBar session={session} onConnect={() => setShowWalletModal(true)} onDisconnect={onDisconnect} />
       <main className="mainLayout">
         <div className="leftCol">

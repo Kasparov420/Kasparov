@@ -41,10 +41,10 @@ class KaspaService {
   }
 
   /**
-   * Generate a new 12-word mnemonic
+   * Generate a new mnemonic (12 or 24 words)
    */
-  async generateNewMnemonic(): Promise<string> {
-    return genMnemonic();
+  async generateNewMnemonic(wordCount: 12 | 24 = 12): Promise<string> {
+    return genMnemonic(wordCount);
   }
 
   /**

@@ -1,0 +1,790 @@
+/* ============================================
+   KASPAROV WALLET MODAL - Chess-Themed Styles
+   ============================================ */
+
+/* Backdrop */
+.wm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(8px);
+  animation: wm-fade-in 0.2s ease-out;
+}
+
+@keyframes wm-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Modal Container */
+.wm-modal {
+  position: relative;
+  background: linear-gradient(165deg, #12161d 0%, #0a0d12 100%);
+  border: 2px solid transparent;
+  border-image: linear-gradient(135deg, #49dd8f 0%, #1a5c38 50%, #49dd8f 100%) 1;
+  border-radius: 0; /* Sharp corners for chess board feel */
+  max-width: 480px;
+  width: 95%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 
+    0 0 60px rgba(73, 221, 143, 0.15),
+    0 25px 50px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: wm-slide-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes wm-slide-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Chess board decorative border */
+.wm-chess-border {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: repeating-linear-gradient(
+    90deg,
+    #fff 0px,
+    #fff 12px,
+    #000 12px,
+    #000 24px
+  );
+  opacity: 0.8;
+}
+
+/* Close button */
+.wm-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.wm-close:hover {
+  background: rgba(255, 100, 100, 0.15);
+  border-color: rgba(255, 100, 100, 0.3);
+  color: #ff6b6b;
+  transform: rotate(90deg);
+}
+
+/* View container */
+.wm-view {
+  padding: 32px 28px;
+  padding-top: 40px;
+}
+
+/* Header */
+.wm-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.wm-header.compact {
+  margin-bottom: 20px;
+}
+
+.wm-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.wm-title-row h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+
+.chess-piece {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.chess-piece.accent {
+  color: #49dd8f;
+  text-shadow: 0 0 20px rgba(73, 221, 143, 0.5);
+}
+
+.chess-piece.muted {
+  color: #555;
+}
+
+.wm-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #777;
+  font-weight: 400;
+}
+
+/* Sections */
+.wm-section {
+  margin-bottom: 20px;
+}
+
+.wm-section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #666;
+  margin-bottom: 12px;
+}
+
+.wm-label-icon {
+  font-size: 14px;
+}
+
+/* Wallet Cards Grid */
+.wm-wallet-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.wm-wallet-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 16px;
+  background: linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.2) 100%);
+  border: 2px solid #222;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.wm-wallet-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 40%, rgba(73, 221, 143, 0.05) 100%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.wm-wallet-card:not(:disabled):hover {
+  border-color: #49dd8f;
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(73, 221, 143, 0.2);
+}
+
+.wm-wallet-card:not(:disabled):hover::before {
+  opacity: 1;
+}
+
+.wm-wallet-card:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.wm-wallet-card.loading {
+  pointer-events: none;
+}
+
+.wm-wallet-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.wm-wallet-icon img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.wm-wallet-icon.kasware {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.05) 100%);
+}
+
+.wm-wallet-icon.kastle {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0.05) 100%);
+}
+
+.wm-wallet-details {
+  text-align: center;
+}
+
+.wm-wallet-name {
+  display: block;
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.wm-wallet-status {
+  display: block;
+  font-size: 11px;
+  color: #888;
+}
+
+/* Divider */
+.wm-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 24px 0;
+}
+
+.wm-divider::before,
+.wm-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #333, transparent);
+}
+
+.wm-divider span {
+  padding: 0 16px;
+  font-size: 11px;
+  color: #555;
+  white-space: nowrap;
+}
+
+/* Action Buttons */
+.wm-action-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 24px;
+  font-size: 15px;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.wm-action-btn.primary {
+  background: linear-gradient(135deg, #49dd8f 0%, #2d8a56 100%);
+  color: #000;
+  box-shadow: 
+    0 4px 20px rgba(73, 221, 143, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.wm-action-btn.primary::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.15) 50%,
+    transparent 70%
+  );
+  transform: rotate(45deg) translateX(-100%);
+  transition: transform 0.6s;
+}
+
+.wm-action-btn.primary:hover::before {
+  transform: rotate(45deg) translateX(100%);
+}
+
+.wm-action-btn.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 8px 30px rgba(73, 221, 143, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.wm-action-btn.primary:active {
+  transform: translateY(0);
+}
+
+.wm-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.wm-btn-icon {
+  font-size: 18px;
+}
+
+/* Link buttons */
+.wm-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.wm-link-btn {
+  background: none;
+  border: none;
+  color: #49dd8f;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.wm-link-btn:hover {
+  background: rgba(73, 221, 143, 0.1);
+  text-decoration: underline;
+}
+
+.wm-link-sep {
+  color: #333;
+}
+
+/* Back button */
+.wm-back-btn {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 13px;
+  padding: 12px;
+  cursor: pointer;
+  transition: color 0.2s;
+  margin-top: 8px;
+}
+
+.wm-back-btn:hover {
+  color: #fff;
+}
+
+/* Type Selection Grid */
+.wm-type-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.wm-type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 12px;
+  background: linear-gradient(145deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.3) 100%);
+  border: 2px solid #222;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.wm-type-card:hover {
+  border-color: #444;
+  transform: translateY(-2px);
+}
+
+.wm-type-card.selected {
+  border-color: #49dd8f;
+  background: linear-gradient(145deg, rgba(73, 221, 143, 0.08) 0%, rgba(73, 221, 143, 0.02) 100%);
+  box-shadow: 
+    0 0 30px rgba(73, 221, 143, 0.15),
+    inset 0 0 20px rgba(73, 221, 143, 0.05);
+}
+
+.wm-type-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.wm-type-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1;
+}
+
+.wm-type-card.selected .wm-type-value {
+  color: #49dd8f;
+  text-shadow: 0 0 20px rgba(73, 221, 143, 0.5);
+}
+
+.wm-type-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 6px 0;
+}
+
+.wm-type-desc {
+  font-size: 10px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.wm-type-bits {
+  font-size: 9px;
+  color: #49dd8f;
+  opacity: 0.7;
+  margin-top: 4px;
+}
+
+/* Warning Box */
+.wm-warning {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(255, 80, 80, 0.1) 0%, rgba(255, 80, 80, 0.05) 100%);
+  border: 1px solid rgba(255, 100, 100, 0.25);
+  border-left: 4px solid #ff6b6b;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.wm-warning-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.wm-warning strong {
+  display: block;
+  color: #ff9999;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.wm-warning p {
+  margin: 0;
+  font-size: 12px;
+  color: #999;
+  line-height: 1.4;
+}
+
+/* Key Sections */
+.wm-key-section {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #222;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.wm-key-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ddd;
+}
+
+.wm-key-badge {
+  font-size: 10px;
+  padding: 3px 8px;
+  background: rgba(73, 221, 143, 0.15);
+  color: #49dd8f;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+/* Mnemonic Grid */
+.wm-mnemonic-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.wm-word {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: linear-gradient(135deg, #1a1f26 0%, #12161d 100%);
+  border: 1px solid #2a2f38;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+.wm-word-num {
+  color: #49dd8f;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+}
+
+.wm-word-text {
+  color: #fff;
+}
+
+/* Private Key Display */
+.wm-private-key {
+  position: relative;
+}
+
+.wm-private-key code {
+  display: block;
+  padding: 12px;
+  background: #0a0d12;
+  border: 1px solid #222;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #49dd8f;
+  word-break: break-all;
+  line-height: 1.5;
+  transition: filter 0.3s;
+}
+
+.wm-private-key code.blurred {
+  filter: blur(6px);
+  user-select: none;
+}
+
+.wm-private-key.large code {
+  font-size: 13px;
+  padding: 16px;
+}
+
+.wm-key-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.wm-key-actions button {
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.wm-key-actions button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #49dd8f;
+  color: #fff;
+}
+
+.wm-key-hint {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: #666;
+  text-align: center;
+}
+
+/* Checkbox */
+.wm-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid #222;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 16px;
+  transition: all 0.2s;
+}
+
+.wm-checkbox:hover {
+  border-color: #333;
+}
+
+.wm-checkbox input {
+  display: none;
+}
+
+.wm-checkbox-mark {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #444;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.wm-checkbox-mark::after {
+  content: '♔';
+  font-size: 12px;
+  color: #000;
+  opacity: 0;
+  transform: scale(0);
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.wm-checkbox input:checked + .wm-checkbox-mark {
+  background: #49dd8f;
+  border-color: #49dd8f;
+}
+
+.wm-checkbox input:checked + .wm-checkbox-mark::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.wm-checkbox span:last-child {
+  font-size: 13px;
+  color: #aaa;
+}
+
+/* Input Sections */
+.wm-input-section {
+  margin-bottom: 20px;
+}
+
+.wm-input-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.wm-textarea,
+.wm-input {
+  width: 100%;
+  padding: 14px 16px;
+  background: #0a0d12;
+  border: 2px solid #222;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  transition: all 0.2s;
+  resize: none;
+}
+
+.wm-textarea:focus,
+.wm-input:focus {
+  outline: none;
+  border-color: #49dd8f;
+  box-shadow: 0 0 20px rgba(73, 221, 143, 0.15);
+}
+
+.wm-textarea::placeholder,
+.wm-input::placeholder {
+  color: #444;
+}
+
+.wm-input-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #555;
+}
+
+/* Error Box */
+.wm-error {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(255, 80, 80, 0.1) 0%, rgba(255, 80, 80, 0.05) 100%);
+  border: 1px solid rgba(255, 100, 100, 0.25);
+  border-radius: 8px;
+  color: #ff9999;
+  font-size: 13px;
+  margin-top: 16px;
+}
+
+/* Spinner */
+.wm-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(73, 221, 143, 0.2);
+  border-top-color: #49dd8f;
+  border-radius: 50%;
+  animation: wm-spin 0.8s linear infinite;
+}
+
+.wm-spinner.light {
+  border-color: rgba(0, 0, 0, 0.2);
+  border-top-color: #000;
+}
+
+@keyframes wm-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .wm-modal {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  
+  .wm-view {
+    padding: 24px 20px;
+  }
+  
+  .wm-wallet-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .wm-type-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  
+  .wm-type-card {
+    flex-direction: row;
+    padding: 14px 16px;
+    gap: 12px;
+    text-align: left;
+  }
+  
+  .wm-type-icon {
+    margin: 0;
+  }
+  
+  .wm-mnemonic-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

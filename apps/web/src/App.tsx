@@ -10,6 +10,22 @@ import "./App.css";
 
 type Screen = "wallet-setup" | "welcome" | "lobby" | "playing";
 
+// Helper to derive private key hex from mnemonic
+async function derivePrivateKeyHex(mnemonic: string): Promise<string> {
+  const { mnemonicToSeed } = await import('@scure/bip39')
+  const { HDKey } = await import('@scure/bip32')
+  
+  const seed = await mnemonicToSeed(mnemonic)
+  const hdKey = HDKey.fromMasterSeed(seed)
+  const derived = hdKey.derive("m/44'/111111'/0'/0/0")
+  
+  if (!derived.privateKey) throw new Error('Derivation failed')
+  
+  return Array.from(derived.privateKey)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("wallet-setup");
   const [game, setGame] = useState<ChessGame | null>(null);
@@ -19,6 +35,10 @@ export default function App() {
   const [promotionMove, setPromotionMove] = useState<{ from: Square; to: Square } | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [showMnemonic, setShowMnemonic] = useState<string | null>(null);
+  const [showPrivateKeyHex, setShowPrivateKeyHex] = useState<string | null>(null);
+  const [privateKeyRevealed, setPrivateKeyRevealed] = useState(false);
+  const [wordCountChoice, setWordCountChoice] = useState<12 | 24 | 'hex'>(12);
+  const [showWordCountPicker, setShowWordCountPicker] = useState(false);
   const [importMode, setImportMode] = useState<'mnemonic' | 'privateKey' | 'nodeConfig' | false>(false);
   const [mnemonicInput, setMnemonicInput] = useState("");
   const [privateKeyInput, setPrivateKeyInput] = useState("");
@@ -230,11 +250,33 @@ export default function App() {
 
   const handleCreateWallet = async () => {
     try {
-      const mnemonic = await kaspaService.generateNewMnemonic();
-      await kaspaService.initialize(mnemonic);
-      const address = kaspaService.getAddress();
-      setWalletAddress(address);
-      setShowMnemonic(mnemonic);
+      if (wordCountChoice === 'hex') {
+        // Generate raw 256-bit private key (no mnemonic)
+        const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+        const hexKey = Array.from(randomBytes)
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        
+        await kaspaService.initializeWithPrivateKey(hexKey);
+        const address = kaspaService.getAddress();
+        setWalletAddress(address);
+        setShowMnemonic(null);
+        setShowPrivateKeyHex(hexKey);
+        setPrivateKeyRevealed(false);
+        setShowWordCountPicker(false);
+      } else {
+        const mnemonic = await kaspaService.generateNewMnemonic(wordCountChoice);
+        await kaspaService.initialize(mnemonic);
+        const address = kaspaService.getAddress();
+        setWalletAddress(address);
+        setShowMnemonic(mnemonic);
+        
+        // Derive and show private key
+        const privKey = await derivePrivateKeyHex(mnemonic);
+        setShowPrivateKeyHex(privKey);
+        setPrivateKeyRevealed(false);
+        setShowWordCountPicker(false);
+      }
     } catch (error) {
       console.error('Failed to create wallet:', error);
       alert('Failed to create wallet: ' + (error instanceof Error ? error.message : String(error)));
@@ -284,6 +326,8 @@ export default function App() {
 
   const handleContinueAfterBackup = () => {
     setShowMnemonic(null);
+    setShowPrivateKeyHex(null);
+    setPrivateKeyRevealed(false);
     setScreen("welcome");
   };
 
@@ -302,33 +346,194 @@ export default function App() {
   };
 
   if (screen === "wallet-setup") {
+    // Show mnemonic backup screen
     if (showMnemonic) {
+      const wordCount = showMnemonic.split(" ").length;
       return (
         <div className="app">
-          <div className="wallet-setup">
-            <h2>⚠️ Backup Your Wallet</h2>
-            <p className="warning-text">
-              Write down these 12 words in order. You'll need them to recover your wallet.
-            </p>
-            <div className="mnemonic-display">
-              {showMnemonic.split(" ").map((word, i) => (
-                <div key={i} className="mnemonic-word">
-                  <span className="word-number">{i + 1}.</span>
-                  <span className="word-text">{word}</span>
-                </div>
-              ))}
+          <div className="wallet-setup chess-theme">
+            <div className="chess-header">
+              <span className="chess-piece">♜</span>
+              <h2>Secure Your Kingdom</h2>
+              <span className="chess-piece">♜</span>
             </div>
-            <button onClick={handleCopyMnemonic} className="btn btn-secondary" style={{ marginTop: '12px' }}>
-              📋 Copy All Words
-            </button>
+            <div className="warning-box">
+              <span className="warning-icon">⚠️</span>
+              <div>
+                <strong>Write these down NOW!</strong>
+                <p>This is your ONLY way to recover funds. We never store your keys.</p>
+              </div>
+            </div>
+            <div className="key-section">
+              <div className="key-header">
+                <span>📝 Recovery Phrase</span>
+                <span className="key-badge">{wordCount} words</span>
+              </div>
+              <div className="mnemonic-display">
+                {showMnemonic.split(" ").map((word, i) => (
+                  <div key={i} className="mnemonic-word">
+                    <span className="word-number">{i + 1}</span>
+                    <span className="word-text">{word}</span>
+                  </div>
+                ))}
+              </div>
+              <button onClick={handleCopyMnemonic} className="btn btn-ghost" style={{ marginTop: '12px' }}>
+                📋 Copy Phrase
+              </button>
+            </div>
+            
+            {showPrivateKeyHex && (
+              <div className="key-section">
+                <div className="key-header">
+                  <span>🔑 Private Key</span>
+                  <span className="key-badge">64 hex</span>
+                </div>
+                <div className="private-key-display">
+                  <code className={privateKeyRevealed ? 'revealed' : 'blurred'}>
+                    {privateKeyRevealed ? showPrivateKeyHex : '●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●'}
+                  </code>
+                  <div className="key-actions">
+                    <button onClick={() => setPrivateKeyRevealed(!privateKeyRevealed)} className="btn btn-small">
+                      {privateKeyRevealed ? '🙈 Hide' : '👁 Show'}
+                    </button>
+                    {privateKeyRevealed && (
+                      <button 
+                        onClick={() => { navigator.clipboard.writeText(showPrivateKeyHex); alert('Private key copied!'); }}
+                        className="btn btn-small"
+                      >
+                        📋 Copy
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="key-hint">💡 Works with Kasware, Kastle & other Kaspa wallets</p>
+              </div>
+            )}
+            
             <div className="wallet-info">
-              <p className="wallet-label">Your Address:</p>
-              <code className="wallet-address" onClick={handleCopyAddress} style={{ cursor: 'pointer' }} title="Click to copy">
+              <p className="wallet-label">Your Address</p>
+              <code className="wallet-address" onClick={handleCopyAddress} title="Click to copy">
                 {walletAddress}
               </code>
             </div>
-            <button onClick={handleContinueAfterBackup} className="btn btn-primary">
-              I've Saved My Recovery Phrase
+            <button onClick={handleContinueAfterBackup} className="btn btn-primary btn-large">
+              ♔ Enter the Arena
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Show hex-only backup screen
+    if (showPrivateKeyHex && !showMnemonic) {
+      return (
+        <div className="app">
+          <div className="wallet-setup chess-theme">
+            <div className="chess-header">
+              <span className="chess-piece">♝</span>
+              <h2>Your Secret Key</h2>
+              <span className="chess-piece">♝</span>
+            </div>
+            <div className="warning-box">
+              <span className="warning-icon">⚠️</span>
+              <div>
+                <strong>Store this safely!</strong>
+                <p>This 64-character key is your only access. Never share it.</p>
+              </div>
+            </div>
+            
+            <div className="key-section large">
+              <div className="key-header">
+                <span>🔐 Private Key</span>
+                <span className="key-badge">256-bit hex</span>
+              </div>
+              <div className="private-key-display large">
+                <code className={privateKeyRevealed ? 'revealed' : 'blurred'}>
+                  {privateKeyRevealed ? showPrivateKeyHex : '●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●'}
+                </code>
+                <div className="key-actions">
+                  <button onClick={() => setPrivateKeyRevealed(!privateKeyRevealed)} className="btn btn-small">
+                    {privateKeyRevealed ? '🙈 Hide' : '👁 Show'}
+                  </button>
+                  {privateKeyRevealed && (
+                    <button 
+                      onClick={() => { navigator.clipboard.writeText(showPrivateKeyHex); alert('Private key copied!'); }}
+                      className="btn btn-small"
+                    >
+                      📋 Copy
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="key-hint">💡 Import directly into Kasware, Kastle, or any Kaspa wallet</p>
+            </div>
+            
+            <div className="wallet-info">
+              <p className="wallet-label">Your Address</p>
+              <code className="wallet-address" onClick={handleCopyAddress} title="Click to copy">
+                {walletAddress}
+              </code>
+            </div>
+            <button onClick={handleContinueAfterBackup} className="btn btn-primary btn-large">
+              ♔ Enter the Arena
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Word count picker
+    if (showWordCountPicker) {
+      return (
+        <div className="app">
+          <div className="wallet-setup chess-theme">
+            <div className="chess-header">
+              <span className="chess-piece">♛</span>
+              <h2>Choose Your Key</h2>
+              <span className="chess-piece">♛</span>
+            </div>
+            <p className="subtitle">Select the format for your new wallet</p>
+            
+            <div className="type-grid">
+              <button 
+                onClick={() => setWordCountChoice(12)}
+                className={`type-card ${wordCountChoice === 12 ? 'selected' : ''}`}
+              >
+                <span className="type-icon">📝</span>
+                <span className="type-value">12</span>
+                <span className="type-label">Words</span>
+                <span className="type-desc">Standard</span>
+                <span className="type-bits">128-bit</span>
+              </button>
+              
+              <button 
+                onClick={() => setWordCountChoice(24)}
+                className={`type-card ${wordCountChoice === 24 ? 'selected' : ''}`}
+              >
+                <span className="type-icon">📜</span>
+                <span className="type-value">24</span>
+                <span className="type-label">Words</span>
+                <span className="type-desc">Maximum</span>
+                <span className="type-bits">256-bit</span>
+              </button>
+              
+              <button 
+                onClick={() => setWordCountChoice('hex')}
+                className={`type-card ${wordCountChoice === 'hex' ? 'selected' : ''}`}
+              >
+                <span className="type-icon">🔐</span>
+                <span className="type-value">64</span>
+                <span className="type-label">Hex Key</span>
+                <span className="type-desc">Raw Key</span>
+                <span className="type-bits">256-bit</span>
+              </button>
+            </div>
+            
+            <button onClick={handleCreateWallet} className="btn btn-primary btn-large" style={{ width: '100%' }}>
+              ⚡ {wordCountChoice === 'hex' ? 'Generate Hex Key' : `Generate ${wordCountChoice}-Word Phrase`}
+            </button>
+            <button onClick={() => setShowWordCountPicker(false)} className="btn btn-ghost" style={{ width: '100%', marginTop: '10px' }}>
+              ← Back to options
             </button>
           </div>
         </div>
@@ -337,89 +542,116 @@ export default function App() {
 
     return (
       <div className="app">
-        <div className="wallet-setup">
-          <h1>Kasparov Chess</h1>
-          <p>On-chain chess powered by Kaspa</p>
+        <div className="wallet-setup chess-theme">
+          <div className="chess-header main">
+            <span className="chess-piece large">♔</span>
+            <div>
+              <h1>Kasparov</h1>
+              <p className="tagline">On-chain chess • Powered by Kaspa</p>
+            </div>
+            <span className="chess-piece large">♚</span>
+          </div>
+          
+          <div className="chess-board-decoration" />
           
           {!importMode ? (
             <div className="wallet-options">
-              <h3>Get Started</h3>
-              <button onClick={handleCreateWallet} className="btn btn-primary btn-large">
-                Create New Wallet
+              <div className="section-label">
+                <span>♟</span> Get Started <span>♟</span>
+              </div>
+              <button onClick={() => setShowWordCountPicker(true)} className="btn btn-primary btn-large">
+                <span className="btn-icon">♕</span> Create New Wallet
               </button>
+              
+              <div className="divider">
+                <span>or import existing</span>
+              </div>
+              
               <button onClick={() => setImportMode('mnemonic')} className="btn btn-secondary btn-large">
-                Import with Seed Phrase
+                Import Seed Phrase
               </button>
               <button onClick={() => setImportMode('privateKey')} className="btn btn-secondary btn-large">
-                Import with Private Key
+                Import Private Key
               </button>
-              <div style={{ marginTop: '20px', borderTop: '1px solid #333', paddingTop: '20px' }}>
-                <button onClick={() => setImportMode('nodeConfig')} className="btn btn-small" style={{ opacity: 0.7 }}>
+              
+              <div className="config-section">
+                <button onClick={() => setImportMode('nodeConfig')} className="btn btn-ghost btn-small">
                   ⚙️ Configure Node
                 </button>
-                <p style={{ fontSize: '12px', opacity: 0.5, marginTop: '8px' }}>
-                  Current: {nodeEndpoint.replace('wss://', '').replace('ws://', '').slice(0, 30)}...
+                <p className="node-info">
+                  {nodeEndpoint.replace('wss://', '').replace('ws://', '').slice(0, 30)}...
                 </p>
               </div>
             </div>
           ) : importMode === 'mnemonic' ? (
             <div className="wallet-import">
-              <h3>Import Wallet</h3>
-              <p>Enter your 12 or 24-word recovery phrase</p>
+              <div className="chess-header small">
+                <span className="chess-piece">♞</span>
+                <h3>Import Wallet</h3>
+                <span className="chess-piece">♞</span>
+              </div>
+              <p className="subtitle">Enter your 12 or 24-word recovery phrase</p>
               <textarea
                 value={mnemonicInput}
                 onChange={(e) => setMnemonicInput(e.target.value)}
-                placeholder="word1 word2 word3 ... (12 or 24 words)"
+                placeholder="Enter your seed phrase, words separated by spaces..."
                 className="mnemonic-input"
                 rows={4}
               />
               <div className="wallet-import-buttons">
                 <button onClick={handleImportWallet} className="btn btn-primary">
-                  Import Wallet
+                  ♜ Restore Wallet
                 </button>
-                <button onClick={() => setImportMode(false)} className="btn btn-secondary">
-                  Back
+                <button onClick={() => setImportMode(false)} className="btn btn-ghost">
+                  ← Back
                 </button>
               </div>
             </div>
           ) : importMode === 'privateKey' ? (
             <div className="wallet-import">
-              <h3>Import with Private Key</h3>
-              <p>Enter your 64-character hex private key</p>
+              <div className="chess-header small">
+                <span className="chess-piece">♝</span>
+                <h3>Import Key</h3>
+                <span className="chess-piece">♝</span>
+              </div>
+              <p className="subtitle">Enter your 64-character hex private key</p>
               <input
                 type="password"
                 value={privateKeyInput}
                 onChange={(e) => setPrivateKeyInput(e.target.value)}
-                placeholder="64-character hex private key"
-                className="mnemonic-input"
-                style={{ fontFamily: 'monospace', height: 'auto', padding: '12px' }}
+                placeholder="64-character hexadecimal private key"
+                className="mnemonic-input mono"
               />
+              <p className="input-hint">Export from Kasware/Kastle: Settings → Export Private Key</p>
               <div className="wallet-import-buttons">
                 <button onClick={handleImportPrivateKey} className="btn btn-primary">
-                  Import Wallet
+                  ♝ Restore Wallet
                 </button>
-                <button onClick={() => setImportMode(false)} className="btn btn-secondary">
-                  Back
+                <button onClick={() => setImportMode(false)} className="btn btn-ghost">
+                  ← Back
                 </button>
               </div>
             </div>
           ) : importMode === 'nodeConfig' ? (
             <div className="wallet-import">
-              <h3>⚙️ Kaspa Node Configuration</h3>
-              <p>Connect to your local node or use a public endpoint</p>
+              <div className="chess-header small">
+                <span className="chess-piece">⚙️</span>
+                <h3>Node Config</h3>
+                <span className="chess-piece">⚙️</span>
+              </div>
+              <p className="subtitle">Connect to your local node or public endpoint</p>
               <input
                 type="text"
                 value={nodeEndpoint}
                 onChange={(e) => setNodeEndpoint(e.target.value)}
                 placeholder="ws://localhost:17110"
-                className="mnemonic-input"
-                style={{ fontFamily: 'monospace', height: 'auto', padding: '12px' }}
+                className="mnemonic-input mono"
               />
-              <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '8px' }}>
-                <strong>Common endpoints:</strong><br/>
-                • Local mainnet: <code>ws://localhost:17110</code><br/>
-                • Local testnet: <code>ws://localhost:17210</code><br/>
-                • Public: <code>wss://kaspa.aspectron.com/mainnet</code>
+              <div className="endpoint-hints">
+                <strong>Common endpoints:</strong>
+                <code>ws://localhost:17110</code> Local mainnet
+                <code>ws://localhost:17210</code> Local testnet
+                <code>wss://kaspa.aspectron.com/mainnet</code> Public
               </div>
               <div className="wallet-import-buttons">
                 <button 

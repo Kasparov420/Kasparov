@@ -50,7 +50,7 @@ export default function KaspaStatsBar() {
         setStats({
           price,
           priceChange24h: priceChange,
-          hashrate: hashrate / 1e12, // Convert to TH/s
+          hashrate: hashrate / 1e18, // Convert to EH/s
           blockHeight,
           difficulty,
           circulatingSupply: 24.5e9, // ~24.5B
