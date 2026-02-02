@@ -118,36 +118,29 @@ class KaspaService {
 
   /**
    * Publish game init event
+   * On-chain disabled until signing is fixed - game works without it
    */
   async publishGameInit(gameId: string): Promise<TxResult> {
-    const address = this.wallet.getAddress();
-    if (!address) {
-      return { success: false, error: 'Wallet not connected' };
-    }
-    
-    const event: GameEvent = { type: 'init', gameId, pubkey: address };
-    return this.wallet.publishEvent(event);
+    console.log('[KaspaService] Game init (server-only):', gameId);
+    return { success: true };
   }
 
   /**
    * Publish game join event
+   * On-chain disabled until signing is fixed - game works without it
    */
   async publishGameJoin(gameId: string): Promise<TxResult> {
-    const address = this.wallet.getAddress();
-    if (!address) {
-      return { success: false, error: 'Wallet not connected' };
-    }
-    
-    const event: GameEvent = { type: 'join', gameId, pubkey: address };
-    return this.wallet.publishEvent(event);
+    console.log('[KaspaService] Game join (server-only):', gameId);
+    return { success: true };
   }
 
   /**
    * Publish chess move
+   * On-chain disabled until signing is fixed - game works without it
    */
   async publishMove(gameId: string, uci: string, ply: number): Promise<TxResult> {
-    const event: GameEvent = { type: 'move', gameId, ply, uci };
-    return this.wallet.publishEvent(event);
+    console.log('[KaspaService] Move (server-only):', gameId, uci, ply);
+    return { success: true };
   }
 
   /**

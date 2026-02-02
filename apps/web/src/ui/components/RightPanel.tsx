@@ -1,5 +1,22 @@
-import React, { useState } from 'react'
-import { Play, Users, Copy, Check, Clock, Trophy, Swords } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { Play, Users, Copy, Check, Clock, Trophy, Swords, RefreshCw, UserPlus } from 'lucide-react'
+
+type WaitingGame = {
+  id: string
+  createdAt: number
+  white: { address: string }
+  status: 'waiting'
+}
+
+function formatTimeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000)
+  if (seconds < 60) return 'Just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
 
 export default function RightPanel({
   game,
@@ -13,6 +30,37 @@ export default function RightPanel({
 }: any) {
   const [gameId, setGameId] = useState('')
   const [copied, setCopied] = useState(false)
+  const [waitingGames, setWaitingGames] = useState<WaitingGame[]>([])
+  const [loadingGames, setLoadingGames] = useState(false)
+
+  // Fetch waiting games
+  const fetchWaitingGames = async () => {
+    setLoadingGames(true)
+    try {
+      const res = await fetch('/api/games?waiting=true')
+      if (res.ok) {
+        const data = await res.json()
+        // Filter out our own games if we have a session
+        const games = (data.games || []).filter((g: WaitingGame) => 
+          !session || g.white.address !== session.address
+        )
+        setWaitingGames(games)
+      }
+    } catch (e) {
+      console.error('Failed to fetch waiting games:', e)
+    } finally {
+      setLoadingGames(false)
+    }
+  }
+
+  // Poll for waiting games when in lobby
+  useEffect(() => {
+    if (!game) {
+      fetchWaitingGames()
+      const interval = setInterval(fetchWaitingGames, 5000) // Poll every 5 seconds
+      return () => clearInterval(interval)
+    }
+  }, [game, session?.address])
 
   const handleCreate = () => {
     if (!session) {
@@ -32,6 +80,14 @@ export default function RightPanel({
       return
     }
     onJoin(gameId.trim())
+  }
+
+  const handleJoinGame = (id: string) => {
+    if (!session) {
+      onOpenWalletModal()
+      return
+    }
+    onJoin(id)
   }
 
   const copyGameId = () => {
@@ -76,6 +132,59 @@ export default function RightPanel({
                 Join
               </button>
             </div>
+          </div>
+
+          {/* Waiting Games Lobby */}
+          <div className="waiting-games-section">
+            <div className="waiting-games-header">
+              <span className="waiting-games-title">
+                <Users size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                Open Games ({waitingGames.length})
+              </span>
+              <button 
+                className="refresh-btn" 
+                onClick={fetchWaitingGames}
+                disabled={loadingGames}
+              >
+                <RefreshCw size={14} className={loadingGames ? 'spinning' : ''} />
+              </button>
+            </div>
+            
+            {waitingGames.length > 0 ? (
+              <div className="waiting-games-list">
+                {waitingGames.map((g) => (
+                  <div key={g.id} className="waiting-game-card">
+                    <div className="waiting-game-info">
+                      <div className="waiting-game-id">
+                        <span className="game-icon">♔</span>
+                        {g.id}
+                      </div>
+                      <div className="waiting-game-host">
+                        Host: {g.white.address.slice(0, 12)}...
+                      </div>
+                      <div className="waiting-game-time">
+                        {formatTimeAgo(g.createdAt)}
+                      </div>
+                    </div>
+                    <button 
+                      className="join-game-btn"
+                      onClick={() => handleJoinGame(g.id)}
+                    >
+                      <UserPlus size={14} />
+                      Join
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="no-waiting-games">
+                {loadingGames ? (
+                  <span>Loading games...</span>
+                ) : (
+                  <span>No games waiting. Create one!</span>
+                )}
+              </div>
+            )}
           </div>
           
           {!session && (

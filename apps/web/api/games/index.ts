@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createGame, listGames, isUsingRedis } from '../lib/gameStorage.js'
+import { createGame, listGames, listWaitingGames, isUsingRedis } from '../lib/gameStorage.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Enable CORS
@@ -27,7 +27,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // List games (GET /api/games)
     if (req.method === 'GET') {
-      const result = await listGames();
+      const waitingOnly = req.query.waiting === 'true';
+      const result = waitingOnly ? await listWaitingGames() : await listGames();
       return res.status(200).json(result);
     }
 

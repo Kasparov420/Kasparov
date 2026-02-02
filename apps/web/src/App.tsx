@@ -193,10 +193,11 @@ function TxPopup({ type, txId, error, onClose }: {
   onClose: () => void;
 }) {
   const explorerUrl = txId ? `https://explorer.kaspa.org/txs/${txId}` : null;
+  const streamUrl = txId ? `https://kaspa.stream/tx/${txId}` : null;
   
-  // Auto-close after 8 seconds
+  // Auto-close after 15 seconds (longer so user can see it)
   useEffect(() => {
-    const timer = setTimeout(onClose, 8000);
+    const timer = setTimeout(onClose, 15000);
     return () => clearTimeout(timer);
   }, [onClose]);
 
@@ -213,22 +214,36 @@ function TxPopup({ type, txId, error, onClose }: {
         {txId && (
           <div className="tx-popup-body">
             <p className="tx-label">Transaction ID</p>
-            <code className="tx-id">{txId.slice(0, 16)}...{txId.slice(-8)}</code>
-            <a 
-              href={explorerUrl!} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="tx-explorer-link"
-            >
-              🔍 View on Explorer
-            </a>
+            <code className="tx-id">{txId}</code>
+            <div className="tx-explorer-links">
+              <a 
+                href={explorerUrl!} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="tx-explorer-link"
+              >
+                🔍 Kaspa Explorer
+              </a>
+              <a 
+                href={streamUrl!} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="tx-explorer-link tx-stream-link"
+              >
+                📺 Kaspa Stream
+              </a>
+            </div>
+            <p className="tx-success-msg">✨ Transaction recorded on Kaspa blockchain!</p>
           </div>
         )}
         
         {error && (
           <div className="tx-popup-error">
-            <p className="tx-error-msg">{error}</p>
-            <p className="tx-error-hint">Game will continue locally. Fund your wallet to record on-chain.</p>
+            <p className="tx-error-msg">⚠️ {error}</p>
+            <p className="tx-error-hint">
+              💡 To record transactions on-chain, send some KAS to your wallet address. 
+              Even 0.01 KAS is enough for hundreds of moves!
+            </p>
           </div>
         )}
         
@@ -312,102 +327,105 @@ export default function App() {
   }, [screen, gameState?.status, gameState?.themeSeed]);
 
   const handleCreateGame = async () => {
-    const myColor = Math.random() > 0.5 ? "w" : "b";
-    const newGame = new ChessGame({
-      myColor,
-      whitePub: myColor === "w" ? (walletAddress || "") : "",
-      status: "lobby",
-    });
-    
-    const state = newGame.getState();
-    setGame(newGame);
-    setGameState(state);
-    setScreen("lobby");
+    if (!walletAddress) {
+      alert("Please connect a wallet first");
+      return;
+    }
 
-    // Publish game-init to DAG
-    setTxPopup({ show: true, type: 'Creating Game', txId: undefined, error: undefined });
-    const result = await kaspaService.publishGameInit(state.gameId);
-    
-    if (result.success && result.txId) {
-      console.log("Game published to DAG:", result.txId);
-      setTxPopup({ show: true, type: 'Game Created!', txId: result.txId, error: undefined });
+    // Show popup FIRST
+    setTxPopup({ show: true, type: 'Creating Game...', txId: undefined, error: undefined });
+
+    try {
+      // Create game on server via API (so other players can find it)
+      const indexedGame = await indexerService.createGame(walletAddress);
       
-      // Mock: index our own event
-      await indexerService.mockIndexEvent({
-        type: "game-init",
-        gameId: state.gameId,
-        timestamp: Date.now(),
-        data: { whitePub: state.whitePub },
+      const myColor = "w"; // Creator is always white
+      const newGame = new ChessGame({
+        gameId: indexedGame.gameId,
+        myColor,
+        whitePub: walletAddress,
+        status: "lobby",
       });
-    } else {
-      console.error("Failed to publish game:", result.error);
-      setTxPopup({ show: true, type: 'Game Created (Offline)', txId: undefined, error: result.error });
       
-      // Still allow playing locally even if TX fails
-      await indexerService.mockIndexEvent({
-        type: "game-init",
-        gameId: state.gameId,
-        timestamp: Date.now(),
-        data: { whitePub: state.whitePub },
-      });
+      const state = newGame.getState();
+      setGame(newGame);
+      setGameState(state);
+
+      // Publish game-init (currently server-only, on-chain coming soon)
+      const result = await kaspaService.publishGameInit(indexedGame.gameId);
+      
+      if (result.success) {
+        console.log("Game created successfully");
+        setTxPopup({ show: true, type: '🎮 Game Created!', txId: result.txId, error: undefined });
+      } else {
+        console.error("Game creation failed:", result.error);
+        setTxPopup({ show: true, type: '🎮 Game Created!', txId: undefined, error: result.error });
+      }
+      
+      // Change to lobby screen
+      setScreen("lobby");
+      
+    } catch (e: any) {
+      console.error("Failed to create game:", e);
+      setTxPopup({ show: true, type: 'Error Creating Game', txId: undefined, error: e.message || 'Server error' });
     }
   };
 
   const handleJoinGame = async (gameId: string) => {
-    // Fetch game from indexer
-    const indexedGame = await indexerService.getGame(gameId);
-    if (!indexedGame) {
-      alert("Game not found");
+    if (!walletAddress) {
+      alert("Please connect a wallet first");
       return;
     }
 
-    const myColor = "b"; // Opposite of creator
-    const newGame = new ChessGame({
-      gameId,
-      myColor,
-      blackPub: walletAddress || "",
-      whitePub: indexedGame.whitePub,
-      status: "lobby",
-    });
-    
-    const state = newGame.getState();
-    setGame(newGame);
-    setGameState(state);
-    setScreen("lobby");
+    // Show popup FIRST
+    setTxPopup({ show: true, type: 'Joining Game...', txId: undefined, error: undefined });
 
-    // Publish game-join to DAG
-    setTxPopup({ show: true, type: 'Joining Game', txId: undefined, error: undefined });
-    const result = await kaspaService.publishGameJoin(gameId);
-    
-    if (result.success && result.txId) {
-      console.log("Join published to DAG:", result.txId);
-      setTxPopup({ show: true, type: 'Game Joined!', txId: result.txId, error: undefined });
-      
-      // Mock: index our own event
-      await indexerService.mockIndexEvent({
-        type: "game-join",
-        gameId,
-        timestamp: Date.now(),
-        data: { blackPub: walletAddress },
-      });
-    } else {
-      console.error("Failed to publish join:", result.error);
-      setTxPopup({ show: true, type: 'Joined (Offline)', txId: undefined, error: result.error });
-      
-      await indexerService.mockIndexEvent({
-        type: "game-join",
-        gameId,
-        timestamp: Date.now(),
-        data: { blackPub: walletAddress },
-      });
-    }
-
-    // Start polling for updates
-    indexerService.startPolling(gameId, (indexedGame) => {
-      if (indexedGame.status === "active" && screen !== "playing") {
-        handleStartGame();
+    try {
+      // Fetch game from API
+      const indexedGame = await indexerService.getGame(gameId);
+      if (!indexedGame) {
+        setTxPopup({ show: true, type: 'Game Not Found', txId: undefined, error: `Game ID "${gameId}" does not exist. Make sure you have the correct ID.` });
+        return;
       }
-    });
+
+      // Join game via API
+      const joinedGame = await indexerService.joinGame(gameId, walletAddress);
+      if (!joinedGame) {
+        setTxPopup({ show: true, type: 'Cannot Join', txId: undefined, error: 'Game may already have 2 players or has ended.' });
+        return;
+      }
+
+      const myColor = "b"; // Joiner is always black
+      const newGame = new ChessGame({
+        gameId,
+        myColor,
+        blackPub: walletAddress,
+        whitePub: indexedGame.whitePub,
+        status: "active",
+      });
+      
+      const state = newGame.getState();
+      setGame(newGame);
+      setGameState(state);
+
+      // Publish game-join (currently server-only, on-chain coming soon)
+      const result = await kaspaService.publishGameJoin(gameId);
+      
+      if (result.success) {
+        console.log("Joined game successfully");
+        setTxPopup({ show: true, type: '🎯 Joined Game!', txId: result.txId, error: undefined });
+      } else {
+        console.error("Join failed:", result.error);
+        setTxPopup({ show: true, type: '🎯 Joined Game!', txId: undefined, error: result.error });
+      }
+
+      // Change screen AFTER popup - go directly to playing since game is now active
+      setScreen("playing");
+
+    } catch (e: any) {
+      console.error("Failed to join game:", e);
+      setTxPopup({ show: true, type: 'Error Joining Game', txId: undefined, error: e.message || 'Server error' });
+    }
   };
 
   const handleStartGame = () => {
@@ -438,7 +456,7 @@ export default function App() {
       
       if (publishResult.success && publishResult.txId) {
         console.log("Move published to DAG:", publishResult.txId);
-        setTxPopup({ show: true, type: 'Move Recorded!', txId: publishResult.txId, error: undefined });
+        setTxPopup({ show: true, type: '♟️ Move On-Chain!', txId: publishResult.txId, error: undefined });
         
         // Mock: index our own event
         await indexerService.mockIndexEvent({
@@ -449,7 +467,7 @@ export default function App() {
         });
       } else {
         // Move made locally but TX failed - show error but continue game
-        setTxPopup({ show: true, type: 'Move (Offline)', txId: undefined, error: publishResult.error });
+        setTxPopup({ show: true, type: 'Move (Offline Mode)', txId: undefined, error: publishResult.error || 'No UTXOs - wallet needs funds' });
         
         await indexerService.mockIndexEvent({
           type: "move",
@@ -490,9 +508,9 @@ export default function App() {
       
       if (result.success && result.txId) {
         console.log("Promotion published to DAG:", result.txId);
-        setTxPopup({ show: true, type: 'Move Recorded!', txId: result.txId, error: undefined });
+        setTxPopup({ show: true, type: '♛ Promotion On-Chain!', txId: result.txId, error: undefined });
       } else {
-        setTxPopup({ show: true, type: 'Move (Offline)', txId: undefined, error: result.error });
+        setTxPopup({ show: true, type: 'Promotion (Offline Mode)', txId: undefined, error: result.error || 'No UTXOs - wallet needs funds' });
       }
     }
     
@@ -568,7 +586,8 @@ export default function App() {
       setWalletAddress(address);
       setScreen("welcome");
     } catch (error) {
-      alert("Invalid mnemonic phrase - check spelling");
+      console.error("Mnemonic import error:", error);
+      alert("Failed to import wallet: " + (error instanceof Error ? error.message : String(error)));
     }
   };
 
@@ -952,23 +971,23 @@ export default function App() {
                       </div>
                     </button>
                     <button 
-                      className={`preset-btn ${nodeEndpoint === 'ws://localhost:17110' ? 'active' : ''}`}
-                      onClick={() => setNodeEndpoint('ws://localhost:17110')}
+                      className={`preset-btn ${nodeEndpoint === 'ws://localhost:16110' ? 'active' : ''}`}
+                      onClick={() => setNodeEndpoint('ws://localhost:16110')}
+                    >
+                      <span className="preset-icon">🐳</span>
+                      <div className="preset-info">
+                        <strong>Docker Node</strong>
+                        <span>Port 16110</span>
+                      </div>
+                    </button>
+                    <button 
+                      className={`preset-btn ${nodeEndpoint === 'ws://127.0.0.1:16110' ? 'active' : ''}`}
+                      onClick={() => setNodeEndpoint('ws://127.0.0.1:16110')}
                     >
                       <span className="preset-icon">🏠</span>
                       <div className="preset-info">
                         <strong>Local Mainnet</strong>
-                        <span>Port 17110</span>
-                      </div>
-                    </button>
-                    <button 
-                      className={`preset-btn ${nodeEndpoint === 'ws://localhost:17210' ? 'active' : ''}`}
-                      onClick={() => setNodeEndpoint('ws://localhost:17210')}
-                    >
-                      <span className="preset-icon">🧪</span>
-                      <div className="preset-info">
-                        <strong>Local Testnet</strong>
-                        <span>Port 17210</span>
+                        <span>127.0.0.1:16110</span>
                       </div>
                     </button>
                   </div>

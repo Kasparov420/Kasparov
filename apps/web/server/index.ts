@@ -86,6 +86,20 @@ app.get('/api/games/:id', (req, res) => {
   res.json({ game })
 })
 
+// List games (with optional waiting filter)
+app.get('/api/games', (req, res) => {
+  const waitingOnly = req.query.waiting === 'true'
+  let gamesList = Array.from(games.values())
+  
+  if (waitingOnly) {
+    gamesList = gamesList
+      .filter(g => g.status === 'waiting')
+      .sort((a, b) => b.createdAt - a.createdAt) // newest first
+  }
+  
+  res.json({ games: gamesList, count: gamesList.length })
+})
+
 app.post('/api/games/:id/move', (req, res) => {
   const { address, uci } = req.body || {}
   const game = games.get(req.params.id)

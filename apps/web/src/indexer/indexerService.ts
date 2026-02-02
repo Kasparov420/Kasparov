@@ -1,12 +1,12 @@
 /**
- * Indexer service - reads game state from DAG
+ * Indexer service - reads game state from API
  * 
- * In production, this would connect to:
- * - kasia-indexer (forked/extended)
- * - or custom indexer service
- * 
- * For now: mock local state
+ * Uses the Vercel API endpoints for shared game storage
+ * Falls back to local mock for development
  */
+
+// API base URL - use relative path for same-origin requests
+const API_BASE = '/api';
 
 export interface IndexedGame {
   gameId: string;
@@ -26,59 +26,168 @@ export interface IndexedEvent {
 }
 
 /**
- * Mock indexer for development
- * In production: connect to actual indexer API
+ * API-backed indexer
+ * Stores games on server so they're shared across all clients
  */
-class MockIndexer {
-  private games: Map<string, IndexedGame> = new Map();
-  private events: Map<string, IndexedEvent[]> = new Map();
+class ApiIndexer {
+  // Local cache for current session
+  private localCache: Map<string, IndexedGame> = new Map();
+
+  async createGame(whitePub: string): Promise<IndexedGame> {
+    try {
+      const response = await fetch(`${API_BASE}/games`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: whitePub }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const apiGame = data.game;
+      
+      // Convert API format to IndexedGame format
+      const game: IndexedGame = {
+        gameId: apiGame.id,
+        whitePub: apiGame.white?.address || whitePub,
+        blackPub: apiGame.black?.address || null,
+        moves: [],
+        status: apiGame.status === 'waiting' ? 'lobby' : apiGame.status === 'active' ? 'active' : 'ended',
+        createdAt: apiGame.createdAt || Date.now(),
+      };
+      
+      this.localCache.set(game.gameId, game);
+      console.log('[Indexer] Created game via API:', game.gameId);
+      return game;
+    } catch (e) {
+      console.error('[Indexer] API create failed:', e);
+      throw e;
+    }
+  }
 
   async getGame(gameId: string): Promise<IndexedGame | null> {
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    return this.games.get(gameId) || null;
-  }
-
-  async getGameEvents(gameId: string): Promise<IndexedEvent[]> {
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    return this.events.get(gameId) || [];
-  }
-
-  async indexEvent(event: IndexedEvent): Promise<void> {
-    const { gameId } = event;
-    
-    // Update game state
-    let game = this.games.get(gameId);
-    
-    if (event.type === "game-init") {
-      game = {
-        gameId,
-        whitePub: event.data.whitePub,
-        blackPub: null,
+    try {
+      const response = await fetch(`${API_BASE}/games/${gameId}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log('[Indexer] Game not found:', gameId);
+          return null;
+        }
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const apiGame = data.game;
+      
+      if (!apiGame) {
+        return this.localCache.get(gameId) || null;
+      }
+      
+      // Convert API format to IndexedGame format
+      const game: IndexedGame = {
+        gameId: apiGame.id,
+        whitePub: apiGame.white?.address || '',
+        blackPub: apiGame.black?.address || null,
         moves: [],
-        status: "lobby",
-        createdAt: event.timestamp,
+        status: apiGame.status === 'waiting' ? 'lobby' : apiGame.status === 'active' ? 'active' : 'ended',
+        createdAt: apiGame.createdAt || Date.now(),
       };
-      this.games.set(gameId, game);
-    } else if (event.type === "game-join" && game) {
-      game.blackPub = event.data.blackPub;
-      game.status = "active";
-    } else if (event.type === "move" && game) {
-      game.moves.push(event.data.uci);
+      
+      this.localCache.set(gameId, game);
+      return game;
+    } catch (e) {
+      console.error('[Indexer] API get failed:', e);
+      // Fallback to local cache
+      return this.localCache.get(gameId) || null;
     }
-    
-    // Store event
-    const gameEvents = this.events.get(gameId) || [];
-    gameEvents.push(event);
-    this.events.set(gameId, gameEvents);
+  }
+
+  async joinGame(gameId: string, blackPub: string): Promise<IndexedGame | null> {
+    try {
+      const response = await fetch(`${API_BASE}/games/${gameId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: blackPub }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const apiGame = data.game;
+      
+      const game: IndexedGame = {
+        gameId: apiGame.id,
+        whitePub: apiGame.white?.address || '',
+        blackPub: apiGame.black?.address || blackPub,
+        moves: [],
+        status: 'active',
+        createdAt: apiGame.createdAt || Date.now(),
+      };
+      
+      this.localCache.set(gameId, game);
+      console.log('[Indexer] Joined game via API:', gameId);
+      return game;
+    } catch (e) {
+      console.error('[Indexer] API join failed:', e);
+      return null;
+    }
+  }
+
+  async recordMove(gameId: string, address: string, uci: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${API_BASE}/games/${gameId}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, uci }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      console.log('[Indexer] Move recorded via API:', gameId, uci);
+      return true;
+    } catch (e) {
+      console.error('[Indexer] API move failed:', e);
+      return false;
+    }
   }
 
   async listGames(): Promise<IndexedGame[]> {
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    return Array.from(this.games.values());
+    try {
+      const response = await fetch(`${API_BASE}/games`);
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const games = (data.games || []).map((apiGame: any) => ({
+        gameId: apiGame.id,
+        whitePub: apiGame.white?.address || '',
+        blackPub: apiGame.black?.address || null,
+        moves: [],
+        status: apiGame.status === 'waiting' ? 'lobby' : apiGame.status === 'active' ? 'active' : 'ended',
+        createdAt: apiGame.createdAt || Date.now(),
+      }));
+      
+      return games;
+    } catch (e) {
+      console.error('[Indexer] API list failed:', e);
+      return Array.from(this.localCache.values());
+    }
+  }
+
+  // For mock events (transaction indexing simulation)
+  async indexEvent(event: IndexedEvent): Promise<void> {
+    // This is a no-op now since we use the API
+    // The actual game state is managed by the API
+    console.log('[Indexer] Event (for TX record):', event.type, event.gameId);
   }
 }
 
@@ -86,45 +195,53 @@ class MockIndexer {
  * Indexer service singleton
  */
 class IndexerService {
-  private indexer: MockIndexer;
+  private indexer: ApiIndexer;
   private pollInterval: number | null = null;
 
   constructor() {
-    this.indexer = new MockIndexer();
+    this.indexer = new ApiIndexer();
+  }
+
+  async createGame(whitePub: string): Promise<IndexedGame> {
+    return this.indexer.createGame(whitePub);
   }
 
   async getGame(gameId: string): Promise<IndexedGame | null> {
     return this.indexer.getGame(gameId);
   }
 
+  async joinGame(gameId: string, blackPub: string): Promise<IndexedGame | null> {
+    return this.indexer.joinGame(gameId, blackPub);
+  }
+
+  async recordMove(gameId: string, address: string, uci: string): Promise<boolean> {
+    return this.indexer.recordMove(gameId, address, uci);
+  }
+
   async getGameEvents(gameId: string): Promise<IndexedEvent[]> {
-    return this.indexer.getGameEvents(gameId);
+    // Events are now tracked via blockchain transactions
+    return [];
   }
 
-  async listGames(): Promise<IndexedGame[]> {
-    return this.indexer.listGames();
+  // Legacy method for compatibility - now uses API
+  async mockIndexEvent(event: Omit<IndexedEvent, "txId">): Promise<void> {
+    await this.indexer.indexEvent({
+      ...event,
+      txId: `local-${Date.now()}`,
+    });
   }
 
-  /**
-   * Start polling for game updates
-   */
-  startPolling(gameId: string, onUpdate: (game: IndexedGame) => void): void {
+  startPolling(gameId: string, callback: (game: IndexedGame) => void): void {
     if (this.pollInterval) {
-      this.stopPolling();
+      clearInterval(this.pollInterval);
     }
 
-    const poll = async () => {
+    this.pollInterval = window.setInterval(async () => {
       const game = await this.getGame(gameId);
       if (game) {
-        onUpdate(game);
+        callback(game);
       }
-    };
-
-    // Initial poll
-    poll();
-
-    // Poll every 2 seconds
-    this.pollInterval = window.setInterval(poll, 2000);
+    }, 2000);
   }
 
   stopPolling(): void {
@@ -134,20 +251,10 @@ class IndexerService {
     }
   }
 
-  /**
-   * Mock: simulate indexing our own published events
-   */
-  async mockIndexEvent(event: Omit<IndexedEvent, "txId">): Promise<void> {
-    const indexedEvent: IndexedEvent = {
-      ...event,
-      txId: "mock-tx-" + Date.now(),
-    };
-    
-    await this.indexer.indexEvent(indexedEvent);
+  async listGames(): Promise<IndexedGame[]> {
+    return this.indexer.listGames();
   }
 }
 
-// Export singleton
 export const indexerService = new IndexerService();
-
 export default indexerService;

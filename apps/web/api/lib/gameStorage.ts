@@ -15,41 +15,35 @@ export type Game = {
   moveCount: number
 }
 
-// Lazy Redis initialization - reinitialize each request if needed
+// Lazy Redis initialization
 let redis: Redis | null = null
+let redisChecked = false
 
 function getRedis(): Redis | null {
-  // Always check on each call since env vars may not be available at module load
-  const url = process.env.UPSTASH_REDIS_REST_URL
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN
+  if (redisChecked) return redis
+  redisChecked = true
+  
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN
   
   if (!url || !token) {
-    console.log(`[storage] Redis env missing: URL=${url ? 'set' : 'missing'}, TOKEN=${token ? 'set' : 'missing'}`)
+    console.log(`[storage] No Redis/KV configured, using memory`)
     return null
   }
   
-  // Only create new instance if needed
-  if (!redis) {
-    try {
-      redis = new Redis({ url, token })
-      console.log('[storage] Upstash Redis initialized')
-    } catch (e) {
-      console.error('[storage] Redis init failed:', e)
-      return null
-    }
+  try {
+    redis = new Redis({ url, token })
+    console.log('[storage] Redis/KV initialized')
+    return redis
+  } catch (e) {
+    console.error('[storage] Redis init failed:', e)
+    return null
   }
-  
-  return redis
 }
 
-// In-memory fallback (works for local dev and warm serverless instances)
-declare global {
-  var __games: Map<string, Game> | undefined
-}
-if (!global.__games) {
-  global.__games = new Map<string, Game>()
-}
-const memoryGames = global.__games
+// In-memory fallback - use globalThis for persistence across warm starts
+const memoryGames: Map<string, Game> = (globalThis as any).__kasparov_games || new Map<string, Game>();
+(globalThis as any).__kasparov_games = memoryGames;
 
 const GAME_PREFIX = 'game:'
 const GAME_TTL = 60 * 60 * 24 // 24 hours
@@ -183,6 +177,14 @@ export async function listGames(): Promise<{ games: Game[], count: number, stora
       storage: 'memory' 
     }
   }
+}
+
+export async function listWaitingGames(): Promise<{ games: Game[], count: number }> {
+  const { games } = await listGames()
+  const waiting = games
+    .filter(g => g.status === 'waiting')
+    .sort((a, b) => b.createdAt - a.createdAt) // newest first
+  return { games: waiting, count: waiting.length }
 }
 
 export function isUsingRedis(): boolean {
