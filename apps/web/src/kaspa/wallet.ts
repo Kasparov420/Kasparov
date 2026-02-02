@@ -12,7 +12,7 @@ import * as bip39 from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { HDKey } from '@scure/bip32';
 import { blake2b } from '@noble/hashes/blake2b';
-import { secp256k1 } from '@noble/curves/secp256k1';
+import { secp256k1, schnorr } from '@noble/curves/secp256k1';
 import { encodeEvent, isPayloadSafe, type GameEvent } from './eventCodec';
 
 // Vite env type declaration
@@ -394,7 +394,12 @@ export class KaspaWallet {
         console.log('[Kaspa] wRPC connected');
         
         try {
-          // Build transaction inputs
+          // Get the 32-byte x-coordinate of the public key for Schnorr
+          const pubkey32 = this.publicKey!.length === 33 
+            ? this.publicKey!.slice(1) 
+            : this.publicKey!;
+          
+          // Build transaction inputs (initially without signatures)
           const inputs = utxos.map((utxo: any) => ({
             previousOutpoint: {
               transactionId: utxo.outpoint?.transactionId,
@@ -408,44 +413,57 @@ export class KaspaWallet {
           // Change output (send back to self minus fee)
           const changeAmount = totalInput - fee;
           
+          // Build scriptPublicKey for P2PK (Schnorr)
+          // Format: 0x20 (32-byte push) + pubkey + 0xac (OP_CHECKSIG)
+          const pubkeyHex = this.toHex(pubkey32);
+          const scriptPubKey = '20' + pubkeyHex + 'ac';
+          
           // Build transaction outputs
-          // 1. OP_RETURN with game data
-          // 2. Change back to self
           const outputs = [
             {
-              // Change output
               amount: changeAmount.toString(),
               scriptPublicKey: {
                 version: 0,
-                scriptPublicKey: this.getScriptPublicKey()
+                scriptPublicKey: scriptPubKey
               }
             }
           ];
 
-          // Convert OP_RETURN data to hex
-          const opReturnHex = Array.from(new TextEncoder().encode(opReturnData))
-            .map(b => b.toString(16).padStart(2, '0')).join('');
+          // Convert OP_RETURN data to hex for payload
+          const opReturnHex = this.toHex(new TextEncoder().encode(opReturnData));
           
-          // Build transaction object
-          const transaction = {
-            version: 0,
-            inputs,
-            outputs,
-            lockTime: 0n,
-            subnetworkId: '0000000000000000000000000000000000000000',
-            gas: 0n,
-            payload: opReturnHex
-          };
-
-          // Sign each input
+          // Transaction structure
+          const txVersion = 0;
+          const subnetworkId = '0000000000000000000000000000000000000000';
+          
+          // Sign each input using Schnorr
           for (let i = 0; i < inputs.length; i++) {
             const utxo = utxos[i];
-            const sigHash = await this.computeSigHash(transaction, i, utxo);
-            const signature = secp256k1.sign(sigHash, this.privateKey!);
             
-            // Build signature script (schnorr)
-            const sigBytes = signature.toCompactRawBytes();
-            const sigScript = this.buildSignatureScript(sigBytes, this.publicKey!);
+            // Compute SigHash for this input
+            const sigHash = this.computeKaspaSigHash(
+              txVersion,
+              inputs,
+              outputs,
+              i,
+              utxo,
+              subnetworkId,
+              opReturnHex
+            );
+            
+            console.log(`[Kaspa] SigHash for input ${i}:`, this.toHex(sigHash));
+            
+            // Sign with Schnorr (BIP-340 style)
+            const signature = schnorr.sign(sigHash, this.privateKey!);
+            
+            // Build signature script: 0x41 (65 bytes) + sig (64) + sighash_type (1)
+            // Or simpler: 0x40 (64 bytes) + sig
+            const sigHex = this.toHex(signature);
+            
+            // Kaspa Schnorr script: <sig> <pubkey>
+            // 0x40 = push 64 bytes (signature)
+            // 0x20 = push 32 bytes (pubkey)
+            const sigScript = '40' + sigHex + '20' + pubkeyHex;
             inputs[i].signatureScript = sigScript;
           }
 
@@ -455,19 +473,19 @@ export class KaspaWallet {
             method: 'submitTransaction',
             params: {
               transaction: {
-                version: transaction.version,
-                inputs: transaction.inputs,
-                outputs: transaction.outputs,
-                lockTime: transaction.lockTime.toString(),
-                subnetworkId: transaction.subnetworkId,
-                gas: transaction.gas.toString(),
-                payload: transaction.payload
+                version: txVersion,
+                inputs: inputs,
+                outputs: outputs,
+                lockTime: '0',
+                subnetworkId: subnetworkId,
+                gas: '0',
+                payload: opReturnHex
               },
               allowOrphan: false
             }
           };
 
-          console.log('[Kaspa] Submitting transaction...');
+          console.log('[Kaspa] Submitting transaction...', JSON.stringify(submitRequest, null, 2));
           ws.send(JSON.stringify(submitRequest));
         } catch (e: any) {
           clearTimeout(timeout);
@@ -518,41 +536,183 @@ export class KaspaWallet {
   }
 
   /**
-   * Get script public key for P2PK address
+   * Convert bytes to hex string
    */
-  private getScriptPublicKey(): string {
-    if (!this.publicKey) return '';
-    // P2PK script: <pubkey> OP_CHECKSIG
-    const pubkeyHex = Array.from(this.publicKey).map(b => b.toString(16).padStart(2, '0')).join('');
-    return '20' + pubkeyHex + 'ac'; // 0x20 = 32 bytes push, 0xac = OP_CHECKSIG
+  private toHex(data: Uint8Array): string {
+    return Array.from(data).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   /**
-   * Compute signature hash for input
+   * Convert hex string to bytes
    */
-  private async computeSigHash(tx: any, inputIndex: number, utxo: any): Promise<Uint8Array> {
-    // Simplified sighash computation
-    // In production, use proper BIP-340 sighash
-    const encoder = new TextEncoder();
-    const data = encoder.encode(
-      tx.version.toString() +
-      JSON.stringify(tx.inputs) +
-      JSON.stringify(tx.outputs) +
-      tx.lockTime.toString() +
-      inputIndex.toString() +
-      (utxo.utxoEntry?.amount || 0).toString()
-    );
-    return blake2b(data, { dkLen: 32 });
+  private fromHex(hex: string): Uint8Array {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
   }
 
   /**
-   * Build signature script
+   * Write uint16 as little-endian bytes
    */
-  private buildSignatureScript(signature: Uint8Array, pubkey: Uint8Array): string {
-    // Schnorr signature script: <sig> <pubkey>
-    const sigHex = Array.from(signature).map(b => b.toString(16).padStart(2, '0')).join('');
-    const pubkeyHex = Array.from(pubkey).map(b => b.toString(16).padStart(2, '0')).join('');
-    return '40' + sigHex + '21' + pubkeyHex; // 0x40 = 64 bytes, 0x21 = 33 bytes
+  private writeUint16LE(value: number): Uint8Array {
+    const buf = new Uint8Array(2);
+    buf[0] = value & 0xff;
+    buf[1] = (value >> 8) & 0xff;
+    return buf;
+  }
+
+  /**
+   * Write uint64 as little-endian bytes
+   */
+  private writeUint64LE(value: bigint): Uint8Array {
+    const buf = new Uint8Array(8);
+    for (let i = 0; i < 8; i++) {
+      buf[i] = Number((value >> BigInt(i * 8)) & 0xffn);
+    }
+    return buf;
+  }
+
+  /**
+   * Compute Kaspa SigHash for transaction signing
+   * Based on Kaspa's SigHashAll implementation
+   */
+  private computeKaspaSigHash(
+    version: number,
+    inputs: any[],
+    outputs: any[],
+    inputIndex: number,
+    utxo: any,
+    subnetworkId: string,
+    payload: string
+  ): Uint8Array {
+    // Kaspa uses a specific sighash algorithm based on BIP-340
+    // We need to hash various components of the transaction
+    
+    const parts: Uint8Array[] = [];
+    
+    // 1. Version (2 bytes LE)
+    parts.push(this.writeUint16LE(version));
+    
+    // 2. Hash of all previous outpoints
+    const prevOutpointsData: number[] = [];
+    for (const input of inputs) {
+      // Transaction ID (32 bytes, reversed)
+      const txIdBytes = this.fromHex(input.previousOutpoint.transactionId);
+      for (let i = txIdBytes.length - 1; i >= 0; i--) {
+        prevOutpointsData.push(txIdBytes[i]);
+      }
+      // Index (4 bytes LE)
+      const idx = input.previousOutpoint.index;
+      prevOutpointsData.push(idx & 0xff, (idx >> 8) & 0xff, (idx >> 16) & 0xff, (idx >> 24) & 0xff);
+    }
+    const prevOutpointsHash = blake2b(new Uint8Array(prevOutpointsData), { dkLen: 32 });
+    parts.push(prevOutpointsHash);
+    
+    // 3. Hash of all sequences
+    const sequencesData: number[] = [];
+    for (const input of inputs) {
+      const seq = input.sequence || 0;
+      sequencesData.push(seq & 0xff, (seq >> 8) & 0xff, (seq >> 16) & 0xff, (seq >> 24) & 0xff, 0, 0, 0, 0);
+    }
+    const sequencesHash = blake2b(new Uint8Array(sequencesData), { dkLen: 32 });
+    parts.push(sequencesHash);
+    
+    // 4. Hash of sigOpCounts
+    const sigOpData: number[] = [];
+    for (const input of inputs) {
+      sigOpData.push(input.sigOpCount || 1);
+    }
+    const sigOpHash = blake2b(new Uint8Array(sigOpData), { dkLen: 32 });
+    parts.push(sigOpHash);
+    
+    // 5. Hash of all outputs
+    const outputsData: number[] = [];
+    for (const output of outputs) {
+      // Amount (8 bytes LE)
+      const amount = BigInt(output.amount);
+      for (let i = 0; i < 8; i++) {
+        outputsData.push(Number((amount >> BigInt(i * 8)) & 0xffn));
+      }
+      // Script version (2 bytes LE)
+      outputsData.push(output.scriptPublicKey.version & 0xff, 0);
+      // Script length (varint - 1 byte for small scripts)
+      const scriptBytes = this.fromHex(output.scriptPublicKey.scriptPublicKey);
+      outputsData.push(scriptBytes.length);
+      // Script bytes
+      for (const b of scriptBytes) {
+        outputsData.push(b);
+      }
+    }
+    const outputsHash = blake2b(new Uint8Array(outputsData), { dkLen: 32 });
+    parts.push(outputsHash);
+    
+    // 6. Lock time (8 bytes LE)
+    parts.push(this.writeUint64LE(0n));
+    
+    // 7. Subnetwork ID (20 bytes)
+    parts.push(this.fromHex(subnetworkId));
+    
+    // 8. Gas (8 bytes LE)
+    parts.push(this.writeUint64LE(0n));
+    
+    // 9. Payload hash
+    const payloadBytes = payload ? this.fromHex(payload) : new Uint8Array(0);
+    const payloadHash = blake2b(payloadBytes, { dkLen: 32 });
+    parts.push(payloadHash);
+    
+    // 10. Input being signed - outpoint
+    const currentInput = inputs[inputIndex];
+    const txIdBytes = this.fromHex(currentInput.previousOutpoint.transactionId);
+    const txIdReversed = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) {
+      txIdReversed[i] = txIdBytes[31 - i];
+    }
+    parts.push(txIdReversed);
+    
+    // Input index (4 bytes LE)
+    const idxBytes = new Uint8Array(4);
+    const idx = currentInput.previousOutpoint.index;
+    idxBytes[0] = idx & 0xff;
+    idxBytes[1] = (idx >> 8) & 0xff;
+    idxBytes[2] = (idx >> 16) & 0xff;
+    idxBytes[3] = (idx >> 24) & 0xff;
+    parts.push(idxBytes);
+    
+    // 11. UTXO script version (2 bytes LE)
+    const utxoScriptVersion = utxo.utxoEntry?.scriptPublicKey?.version || 0;
+    parts.push(this.writeUint16LE(utxoScriptVersion));
+    
+    // 12. UTXO script public key
+    const utxoScript = this.fromHex(utxo.utxoEntry?.scriptPublicKey?.scriptPublicKey || '');
+    parts.push(new Uint8Array([utxoScript.length]));
+    parts.push(utxoScript);
+    
+    // 13. UTXO amount (8 bytes LE)
+    const utxoAmount = BigInt(utxo.utxoEntry?.amount || 0);
+    parts.push(this.writeUint64LE(utxoAmount));
+    
+    // 14. Sequence of this input (8 bytes LE)
+    parts.push(this.writeUint64LE(BigInt(currentInput.sequence || 0)));
+    
+    // 15. SigOpCount of this input (1 byte)
+    parts.push(new Uint8Array([currentInput.sigOpCount || 1]));
+    
+    // 16. SigHashType (1 byte) - SigHashAll = 0x01
+    parts.push(new Uint8Array([0x01]));
+    
+    // Concatenate all parts
+    const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
+    const combined = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const part of parts) {
+      combined.set(part, offset);
+      offset += part.length;
+    }
+    
+    // Final hash
+    return blake2b(combined, { dkLen: 32 });
   }
 
   disconnect(): void {
