@@ -947,6 +947,28 @@ body::before {
   border: 1px solid var(--bg-lighter);
 }
 
+.board-container-large {
+  background: var(--bg-dark);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-board);
+  border: 1px solid var(--bg-lighter);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.board-preview-large {
+  background: var(--bg-dark);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: var(--shadow-board);
+  border: 1px solid var(--bg-lighter);
+  display: flex;
+  justify-content: center;
+  margin: 20px 0;
+}
+
 /* Player Cards */
 .player-card {
   display: flex;

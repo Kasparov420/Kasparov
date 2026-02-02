@@ -208,6 +208,28 @@ export class ChessGame {
   }
 
   /**
+   * Try to make a move (for drag and drop)
+   */
+  tryMove(from: Square, to: Square): boolean {
+    if (this.state.turn !== this.state.myColor) return false;
+    
+    const move = this.chess.move({ from, to, promotion: 'q' }); // Auto-queen for now
+    if (!move) return false;
+
+    const uci = this.moveToUci(move);
+    this.state = {
+      ...this.state,
+      selectedSquare: null,
+      legalMoves: [],
+      fen: this.chess.fen(),
+      turn: this.chess.turn(),
+      moves: [...this.state.moves, uci],
+      lastMove: { from, to },
+    };
+    return true;
+  }
+
+  /**
    * Apply multiple moves
    */
   private applyMoves(moves: string[]): void {

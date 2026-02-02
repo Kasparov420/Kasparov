@@ -30,7 +30,7 @@
     "lucide-react": "^0.563.0",
     "nanoid": "^5.0.7",
     "react": "^19.2.4",
-    "react-chessboard": "^5.8.6",
+    "react-chessboard": "^4.6.0",
     "react-dom": "^19.2.4",
     "vite-plugin-node-polyfills": "^0.25.0",
     "ws": "^8.17.1"

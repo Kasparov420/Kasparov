@@ -336,14 +336,17 @@ export default function App() {
     setTxPopup({ show: true, type: 'Creating Game...', txId: undefined, error: undefined });
 
     try {
+      // Random color assignment
+      const myColor = Math.random() < 0.5 ? "w" : "b";
+      
       // Create game on server via API (so other players can find it)
       const indexedGame = await indexerService.createGame(walletAddress);
       
-      const myColor = "w"; // Creator is always white
       const newGame = new ChessGame({
         gameId: indexedGame.gameId,
         myColor,
-        whitePub: walletAddress,
+        whitePub: myColor === "w" ? walletAddress : undefined,
+        blackPub: myColor === "b" ? walletAddress : null,
         status: "lobby",
       });
       
@@ -395,31 +398,30 @@ export default function App() {
         return;
       }
 
-      const myColor = "b"; // Joiner is always black
+      // Joiner gets the opposite color from creator
+      const creatorIsWhite = !!joinedGame.whitePub;
+      const myColor = creatorIsWhite ? "b" : "w";
+      
       const newGame = new ChessGame({
         gameId,
         myColor,
-        blackPub: walletAddress,
-        whitePub: indexedGame.whitePub,
+        whitePub: creatorIsWhite ? joinedGame.whitePub : walletAddress,
+        blackPub: creatorIsWhite ? walletAddress : joinedGame.blackPub,
         status: "active",
+        fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
       });
       
       const state = newGame.getState();
       setGame(newGame);
       setGameState(state);
 
-      // Publish game-join (currently server-only, on-chain coming soon)
+      // Publish game-join (currently server-only)
       const result = await kaspaService.publishGameJoin(gameId);
       
-      if (result.success) {
-        console.log("Joined game successfully");
-        setTxPopup({ show: true, type: '🎯 Joined Game!', txId: result.txId, error: undefined });
-      } else {
-        console.error("Join failed:", result.error);
-        setTxPopup({ show: true, type: '🎯 Joined Game!', txId: undefined, error: result.error });
-      }
+      console.log("Joined game successfully:", gameId);
+      setTxPopup({ show: true, type: '🎯 Joined Game!', txId: result.txId, error: undefined });
 
-      // Change screen AFTER popup - go directly to playing since game is now active
+      // Go directly to playing
       setScreen("playing");
 
     } catch (e: any) {
@@ -488,6 +490,40 @@ export default function App() {
       game.updateState(result.updatedState);
       setGameState(game.getState());
     }
+  };
+
+  // Handle drag and drop moves
+  const handlePieceDrop = async (sourceSquare: Square, targetSquare: Square): Promise<boolean> => {
+    if (!game || !gameState) return false;
+    if (gameState.turn !== gameState.myColor) return false;
+
+    // Try the move
+    const result = game.tryMove(sourceSquare, targetSquare);
+    if (!result) return false;
+
+    const newState = game.getState();
+    setGameState(newState);
+
+    // Publish move
+    const uci = newState.moves[newState.moves.length - 1];
+    await kaspaService.publishMove(newState.gameId, uci, newState.moves.length);
+    
+    // Sync with server
+    await indexerService.mockIndexEvent({
+      type: "move",
+      gameId: newState.gameId,
+      timestamp: Date.now(),
+      data: { uci, plyNumber: newState.moves.length },
+    });
+
+    // Check game over
+    const gameOver = game.isGameOver();
+    if (gameOver.over) {
+      game.updateState({ status: "ended" });
+      setGameState(game.getState());
+    }
+
+    return true;
   };
 
   const handlePromotion = async (piece: "q" | "r" | "b" | "n") => {
@@ -1090,13 +1126,15 @@ export default function App() {
           <p>Game ID: <code>{gameState.gameId}</code></p>
           <p>Your color: {gameState.myColor === "w" ? "White" : "Black"}</p>
           
-          <div className="board-preview">
+          <div className="board-preview-large">
             <Chessboard
               position={gameState.fen}
               boardOrientation={game?.getBoardOrientation()}
               customDarkSquareStyle={{ backgroundColor: theme.darkSquare }}
               customLightSquareStyle={{ backgroundColor: theme.lightSquare }}
               arePiecesDraggable={false}
+              showBoardNotation={true}
+              boardWidth={480}
             />
           </div>
           
@@ -1133,15 +1171,18 @@ export default function App() {
             </p>
           </div>
 
-          <div className="board-container">
+          <div className="board-container-large">
             <Chessboard
               position={gameState.fen}
               boardOrientation={game.getBoardOrientation()}
               onSquareClick={handleSquareClick}
+              onPieceDrop={handlePieceDrop}
               customDarkSquareStyle={{ backgroundColor: theme.darkSquare }}
               customLightSquareStyle={{ backgroundColor: theme.lightSquare }}
               customSquareStyles={getSquareStyles()}
-              arePiecesDraggable={false}
+              arePiecesDraggable={gameState.turn === gameState.myColor}
+              showBoardNotation={true}
+              boardWidth={560}
             />
           </div>
 
