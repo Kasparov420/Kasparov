@@ -493,7 +493,7 @@ export default function App() {
   };
 
   // Handle drag and drop moves
-  const handlePieceDrop = async (sourceSquare: Square, targetSquare: Square): Promise<boolean> => {
+  const handlePieceDrop = (sourceSquare: Square, targetSquare: Square, piece: string): boolean => {
     if (!game || !gameState) return false;
     if (gameState.turn !== gameState.myColor) return false;
 
@@ -504,12 +504,12 @@ export default function App() {
     const newState = game.getState();
     setGameState(newState);
 
-    // Publish move
+    // Publish move async (don't block the UI)
     const uci = newState.moves[newState.moves.length - 1];
-    await kaspaService.publishMove(newState.gameId, uci, newState.moves.length);
+    kaspaService.publishMove(newState.gameId, uci, newState.moves.length);
     
     // Sync with server
-    await indexerService.mockIndexEvent({
+    indexerService.mockIndexEvent({
       type: "move",
       gameId: newState.gameId,
       timestamp: Date.now(),
