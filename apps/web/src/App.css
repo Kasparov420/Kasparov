@@ -4,6 +4,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('./ui/styles/game-layout.css');
 
 /* =====================================================
    THEME VARIABLES - Dark Mode (Default)
@@ -956,6 +957,11 @@ body::before {
   display: flex;
   justify-content: center;
   align-items: center;
+  width: fit-content;
+  margin: 0 auto;
+  position: relative;
+  z-index: 500; /* High but below modals */
+  pointer-events: auto !important;
 }
 
 .board-preview-large {
@@ -966,7 +972,10 @@ body::before {
   border: 1px solid var(--bg-lighter);
   display: flex;
   justify-content: center;
-  margin: 20px 0;
+  align-items: center;
+  margin: 20px auto;
+  width: fit-content;
+  max-width: 100%;
 }
 
 /* Player Cards */
@@ -2488,4 +2497,31 @@ body::before {
 .tx-popup-footer small {
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/* Lobby Animations */
+.waiting-pulse {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.5px;
+}
+
+.pulse-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background-color: var(--kaspa-primary);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--kaspa-primary);
+  animation: pulse 1.5s infinite;
+}
+
+/* Hide mnemonic input and related hints */
+.mnemonicBox, .mnemonicWord, .wordNum, .wordCountOptions, .wordCountOption, .wordCountLabel, .wordCountDesc, .wordCountNum, .mnemonicInput, .keyDescription, .subText, .warningBox, .mnemonicBox + .subText, .mnemonicBox + .keyDescription {
+  display: none !important;
+}
+
+/* Hide the mnemonic input box and its label/hint if present */
+.recovery-phrase, .recovery-phrase *, .recovery-phrase + .subText, .recovery-phrase + .keyDescription {
+  display: none !important;
 }

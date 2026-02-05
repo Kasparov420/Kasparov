@@ -16,8 +16,15 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8787',
-      '/ws': { target: 'ws://127.0.0.1:8787', ws: true }
+      '/api': {
+        target: 'http://localhost:8787',
+        changeOrigin: true,
+      },
+      '/ws': { 
+        target: 'ws://localhost:8787', 
+        ws: true,
+        changeOrigin: true,
+      }
     }
   },
   optimizeDeps: {

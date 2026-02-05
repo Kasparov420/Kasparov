@@ -5,8 +5,14 @@
  * Falls back to local mock for development
  */
 
-// API base URL - use relative path for same-origin requests
-const API_BASE = '/api';
+// API base URL - detect environment
+function API_BASE(): string {
+  if (typeof window === 'undefined') return '/api';
+  
+  // Always use relative path in browser to leverage Vite proxy or same-origin in production
+  // this avoids CORS issues and port visibility problems in Codespaces
+  return '/api';
+}
 
 export interface IndexedGame {
   gameId: string;
@@ -15,6 +21,8 @@ export interface IndexedGame {
   moves: string[];
   status: "lobby" | "active" | "ended";
   createdAt: number;
+  fen?: string;
+  turn?: 'w' | 'b';
 }
 
 export interface IndexedEvent {
@@ -33,12 +41,14 @@ class ApiIndexer {
   // Local cache for current session
   private localCache: Map<string, IndexedGame> = new Map();
 
-  async createGame(whitePub: string): Promise<IndexedGame> {
+  async createGame(address: string, creatorColor?: 'w' | 'b'): Promise<IndexedGame> {
     try {
-      const response = await fetch(`${API_BASE}/games`, {
+      const url = `${API_BASE()}/games`;
+      console.log('[API] Creating game at:', url);
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: whitePub }),
+        body: JSON.stringify({ address, creatorColor }),
       });
       
       if (!response.ok) {
@@ -49,17 +59,20 @@ class ApiIndexer {
       const apiGame = data.game;
       
       // Convert API format to IndexedGame format
+      // The server sets white.address or black.address based on random color assignment
       const game: IndexedGame = {
         gameId: apiGame.id,
-        whitePub: apiGame.white?.address || whitePub,
+        whitePub: apiGame.white?.address || '',
         blackPub: apiGame.black?.address || null,
         moves: [],
         status: apiGame.status === 'waiting' ? 'lobby' : apiGame.status === 'active' ? 'active' : 'ended',
         createdAt: apiGame.createdAt || Date.now(),
+        fen: apiGame.fen,
+        turn: apiGame.turn,
       };
       
+      console.log('[Indexer] Created game:', game.gameId, 'whitePub:', game.whitePub, 'blackPub:', game.blackPub);
       this.localCache.set(game.gameId, game);
-      console.log('[Indexer] Created game via API:', game.gameId);
       return game;
     } catch (e) {
       console.error('[Indexer] API create failed:', e);
@@ -69,7 +82,7 @@ class ApiIndexer {
 
   async getGame(gameId: string): Promise<IndexedGame | null> {
     try {
-      const response = await fetch(`${API_BASE}/games/${gameId}`);
+      const response = await fetch(`${API_BASE()}/games/${gameId}`);
       
       if (!response.ok) {
         if (response.status === 404) {
@@ -94,6 +107,8 @@ class ApiIndexer {
         moves: [],
         status: apiGame.status === 'waiting' ? 'lobby' : apiGame.status === 'active' ? 'active' : 'ended',
         createdAt: apiGame.createdAt || Date.now(),
+        fen: apiGame.fen,
+        turn: apiGame.turn,
       };
       
       this.localCache.set(gameId, game);
@@ -107,7 +122,7 @@ class ApiIndexer {
 
   async joinGame(gameId: string, blackPub: string): Promise<IndexedGame | null> {
     try {
-      const response = await fetch(`${API_BASE}/games/${gameId}/join`, {
+      const response = await fetch(`${API_BASE()}/games/${gameId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: blackPub }),
@@ -127,6 +142,8 @@ class ApiIndexer {
         moves: [],
         status: 'active',
         createdAt: apiGame.createdAt || Date.now(),
+        fen: apiGame.fen,
+        turn: apiGame.turn,
       };
       
       this.localCache.set(gameId, game);
@@ -138,12 +155,12 @@ class ApiIndexer {
     }
   }
 
-  async recordMove(gameId: string, address: string, uci: string): Promise<boolean> {
+  async recordMove(gameId: string, address: string, uci: string, txid?: string): Promise<boolean> {
     try {
-      const response = await fetch(`${API_BASE}/games/${gameId}/move`, {
+      const response = await fetch(`${API_BASE()}/games/${gameId}/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, uci }),
+        body: JSON.stringify({ address, uci, txid }),
       });
       
       if (!response.ok) {
@@ -160,7 +177,7 @@ class ApiIndexer {
 
   async listGames(): Promise<IndexedGame[]> {
     try {
-      const response = await fetch(`${API_BASE}/games`);
+      const response = await fetch(`${API_BASE()}/games`);
       
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
@@ -202,8 +219,8 @@ class IndexerService {
     this.indexer = new ApiIndexer();
   }
 
-  async createGame(whitePub: string): Promise<IndexedGame> {
-    return this.indexer.createGame(whitePub);
+  async createGame(address: string, creatorColor?: 'w' | 'b'): Promise<IndexedGame> {
+    return this.indexer.createGame(address, creatorColor);
   }
 
   async getGame(gameId: string): Promise<IndexedGame | null> {
@@ -214,8 +231,8 @@ class IndexerService {
     return this.indexer.joinGame(gameId, blackPub);
   }
 
-  async recordMove(gameId: string, address: string, uci: string): Promise<boolean> {
-    return this.indexer.recordMove(gameId, address, uci);
+  async recordMove(gameId: string, address: string, uci: string, txid?: string): Promise<boolean> {
+    return this.indexer.recordMove(gameId, address, uci, txid);
   }
 
   async getGameEvents(gameId: string): Promise<IndexedEvent[]> {

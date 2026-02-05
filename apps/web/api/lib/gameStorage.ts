@@ -13,6 +13,7 @@ export type Game = {
   themeSeed: string
   lastMoveUci?: string
   moveCount: number
+  lastTxId?: string
 }
 
 // Lazy Redis initialization
@@ -123,7 +124,7 @@ export async function joinGame(gameId: string, address: string): Promise<Game | 
   return game
 }
 
-export async function applyMove(gameId: string, address: string, uci: string): Promise<Game | null> {
+export async function applyMove(gameId: string, address: string, uci: string, txid?: string): Promise<Game | null> {
   const game = await getGame(gameId)
   if (!game) return null
   if (game.status !== 'active') return null
@@ -143,6 +144,9 @@ export async function applyMove(gameId: string, address: string, uci: string): P
   game.turn = chess.turn() as 'w' | 'b'
   game.lastMoveUci = uci
   game.moveCount += 1
+  if (txid) {
+    game.lastTxId = txid
+  }
 
   if (
     chess.isCheckmate() ||

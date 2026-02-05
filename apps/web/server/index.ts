@@ -8,7 +8,7 @@ import http from 'http'
 type Game = {
   id: string
   createdAt: number
-  white: { address: string }
+  white?: { address: string }
   black?: { address: string }
   fen: string
   turn: 'w' | 'b'
@@ -19,11 +19,16 @@ type Game = {
 }
 
 const PORT = Number(process.env.PORT || 8787)
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*'
 
 const app = express()
 app.use(express.json({ limit: '1mb' }))
-app.use(cors({ origin: CORS_ORIGIN === '*' ? true : CORS_ORIGIN }))
+// Allow all origins for CORS (needed for github.dev cross-origin)
+app.use(cors({ 
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}))
 
 const games = new Map<string, Game>()
 const clientsByGame = new Map<string, Set<WebSocket>>()
@@ -47,11 +52,13 @@ app.post('/api/games', (req, res) => {
 
   const chess = new Chess()
   const id = randomUUID().slice(0, 12)
-
+  
+  // Creator is ALWAYS White - joiner will be Black
   const game: Game = {
     id,
     createdAt: Date.now(),
     white: { address },
+    black: undefined,
     fen: chess.fen(),
     turn: chess.turn() as 'w' | 'b',
     status: 'waiting',
@@ -60,7 +67,8 @@ app.post('/api/games', (req, res) => {
   }
 
   games.set(id, game)
-  res.json({ game })
+  console.log('[Server] Created game:', id, 'White:', address)
+  res.json({ game, creatorColor: 'w' })
 })
 
 app.post('/api/games/:id/join', (req, res) => {
@@ -69,10 +77,19 @@ app.post('/api/games/:id/join', (req, res) => {
   if (!game) return res.status(404).json({ error: 'not found' })
   if (game.status !== 'waiting') return res.status(400).json({ error: 'game not joinable' })
   if (!address || typeof address !== 'string') return res.status(400).json({ error: 'missing address' })
-  if (address === game.white.address) return res.status(400).json({ error: 'cannot join your own game' })
+  
+  const creatorAddress = game.white?.address || game.black?.address
+  if (address === creatorAddress) return res.status(400).json({ error: 'cannot join your own game' })
 
-  game.black = { address }
+  // Joiner takes the opposite color from creator
+  if (game.white?.address) {
+    game.black = { address }
+  } else {
+    game.white = { address }
+  }
+  
   game.status = 'active'
+  game.themeSeed = randomUUID().slice(0, 8)
   game.themeSeed = randomUUID().slice(0, 8)
 
   games.set(game.id, game)
@@ -109,7 +126,7 @@ app.post('/api/games/:id/move', (req, res) => {
   if (!address || !uci) return res.status(400).json({ error: 'missing address/uci' })
 
   const expected =
-    game.turn === 'w' ? game.white.address : game.black?.address
+    game.turn === 'w' ? game.white?.address : game.black?.address
 
   if (!expected) return res.status(400).json({ error: 'missing opponent' })
   if (address !== expected) return res.status(403).json({ error: 'not your turn' })

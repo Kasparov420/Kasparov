@@ -66,6 +66,24 @@ export class ChessGame {
   }
 
   /**
+   * Get the underlying chess.js instance
+   */
+  getChess(): Chess {
+    return this.chess;
+  }
+
+  /**
+   * Load a FEN position (for syncing with server)
+   */
+  loadFEN(fen: string): void {
+    this.chess.load(fen);
+    this.state.fen = fen;
+    this.state.turn = this.chess.turn();
+    this.state.selectedSquare = null;
+    this.state.legalMoves = [];
+  }
+
+  /**
    * Get legal moves for a specific square
    */
   getLegalMovesForSquare(square: Square): Move[] {
@@ -213,6 +231,26 @@ export class ChessGame {
   tryMove(from: Square, to: Square): boolean {
     if (this.state.turn !== this.state.myColor) return false;
     
+    const move = this.chess.move({ from, to, promotion: 'q' }); // Auto-queen for now
+    if (!move) return false;
+
+    const uci = this.moveToUci(move);
+    this.state = {
+      ...this.state,
+      selectedSquare: null,
+      legalMoves: [],
+      fen: this.chess.fen(),
+      turn: this.chess.turn(),
+      moves: [...this.state.moves, uci],
+      lastMove: { from, to },
+    };
+    return true;
+  }
+
+  /**
+   * Force a move (skip turn check for debugging)
+   */
+  tryMoveForce(from: Square, to: Square): boolean {
     const move = this.chess.move({ from, to, promotion: 'q' }); // Auto-queen for now
     if (!move) return false;
 

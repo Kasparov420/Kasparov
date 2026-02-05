@@ -111,12 +111,13 @@ export default function App() {
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       
-      // For internal wallets, publish on-chain event
+      // For internal wallets, publish on-chain event (MANDATORY)
       if (session.kind === 'internal') {
         const txResult = await kaspaService.publishGameInit(data.game.id)
         if (!txResult.success) {
-          console.warn('On-chain publish failed:', txResult.error)
-          // Continue anyway - game is created server-side
+          console.error('On-chain publish failed:', txResult.error)
+          alert('Failed to create game on-chain: ' + (txResult.error || 'Transaction failed'))
+          return
         } else {
           console.log('Game init published on-chain:', txResult.txId)
         }
@@ -146,11 +147,13 @@ export default function App() {
       }
       const data = await res.json()
       
-      // For internal wallets, publish on-chain event
+      // For internal wallets, publish on-chain event (MANDATORY)
       if (session.kind === 'internal') {
         const txResult = await kaspaService.publishGameJoin(gameId)
         if (!txResult.success) {
-          console.warn('On-chain join publish failed:', txResult.error)
+          console.error('On-chain join publish failed:', txResult.error)
+          alert('Failed to join game on-chain: ' + (txResult.error || 'Transaction failed'))
+          return
         } else {
           console.log('Game join published on-chain:', txResult.txId)
         }
@@ -167,29 +170,44 @@ export default function App() {
     if (!game || !session) return false
     const uci = from + to
     try {
-      const res = await fetch(`/api/games/${game.id}/move`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: session.address, uci })
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'move failed')
-      }
-      const data = await res.json()
-      
-      // For internal wallets, publish move on-chain
+      // For internal wallets, publish move on-chain FIRST (MANDATORY)
       if (session.kind === 'internal') {
-        const txResult = await kaspaService.publishMove(game.id, uci, data.game.moveCount)
+        const txResult = await kaspaService.publishMove(game.id, uci, game.moveCount + 1)
         if (!txResult.success) {
-          console.warn('On-chain move publish failed:', txResult.error)
+          console.error('On-chain move publish failed:', txResult.error)
+          alert('Failed to publish move on-chain: ' + (txResult.error || 'Transaction failed'))
+          return false
         } else {
           console.log('Move published on-chain:', txResult.txId)
+          // Now update server with txid
+          const res = await fetch(`/api/games/${game.id}/move`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: session.address, uci, txid: txResult.txId })
+          })
+          if (!res.ok) {
+            const err = await res.json()
+            throw new Error(err.error || 'move failed')
+          }
+          const data = await res.json()
+          setGame(data.game)
+          return true
         }
+      } else {
+        // For external wallets, just do server move
+        const res = await fetch(`/api/games/${game.id}/move`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: session.address, uci })
+        })
+        if (!res.ok) {
+          const err = await res.json()
+          throw new Error(err.error || 'move failed')
+        }
+        const data = await res.json()
+        setGame(data.game)
+        return true
       }
-      
-      setGame(data.game)
-      return true
     } catch (e) {
       alert('Move failed: ' + (e instanceof Error ? e.message : String(e)))
       return false

@@ -20,12 +20,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log(`[games/${gameId}/move] POST - storage: ${isUsingRedis() ? 'redis' : 'memory'}`);
 
   try {
-    const { address, uci } = req.body || {};
+    const { address, uci, txid } = req.body || {};
     if (!address || !uci) {
       return res.status(400).json({ error: 'missing address or uci' });
     }
     
-    const game = await applyMove(gameId, address, uci);
+    const game = await applyMove(gameId, address, uci, txid);
     if (!game) {
       return res.status(400).json({ error: 'Move failed. It may not be your turn or the move is invalid.' });
     }

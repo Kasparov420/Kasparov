@@ -25,7 +25,7 @@ interface KaspaNetworkStats {
 }
 
 // Side panel component for Kaspa stats
-function KaspaSidePanel({ position }: { position: 'left' | 'right' }) {
+function KaspaSidePanel({ position, hideBlueScore }: { position: 'left' | 'right', hideBlueScore?: boolean }) {
   const [stats, setStats] = useState<KaspaNetworkStats | null>(null);
   
   useEffect(() => {
@@ -135,12 +135,12 @@ function KaspaSidePanel({ position }: { position: 'left' | 'right' }) {
     { label: 'Block Reward', value: stats ? `${stats.blockReward.toFixed(2)} KAS` : '---' },
   ];
 
-  const rightStats = [
-    { label: 'Blue Score', value: stats ? formatNumber(stats.blueScore, 0) : '---' },
+  const rightStats: Array<{ label: string; value: string; change?: number }> = [
+    !hideBlueScore ? { label: 'Blue Score', value: stats ? formatNumber(stats.blueScore, 0) : '---' } : null,
     { label: 'DAA Score', value: stats ? formatNumber(stats.daaScore, 0) : '---' },
     { label: 'BPS / Block Time', value: '10 BPS (0.1s)' },
     { label: 'Circulating', value: stats ? `${formatNumber(stats.circulatingSupply)} KAS` : '---' },
-  ];
+  ].filter((item): item is { label: string; value: string; change?: number } => item !== null);
 
   const items = position === 'left' ? leftStats : rightStats;
 
@@ -165,17 +165,6 @@ function KaspaSidePanel({ position }: { position: 'left' | 'right' }) {
           </div>
         ))}
       </div>
-      {position === 'right' && (
-        <a 
-          href="https://kas.coffee/kasparov" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="donate-button"
-        >
-          <span className="donate-icon">☕</span>
-          <span>Support Kasparov</span>
-        </a>
-      )}
       <div className="side-panel-decoration">
         {[...Array(8)].map((_, i) => (
           <div key={i} className={`chess-square ${i % 2 === (position === 'left' ? 0 : 1) ? 'light' : 'dark'}`} />
@@ -274,15 +263,57 @@ async function derivePrivateKeyHex(mnemonic: string): Promise<string> {
     .join('')
 }
 
+// Sound effects
+const playSound = (type: 'move' | 'capture' | 'notify') => {
+  const audio = new Audio(`/sounds/${type}.mp3`);
+  audio.play().catch(e => console.log('Audio play failed', e));
+};
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("wallet-setup");
   const [game, setGame] = useState<ChessGame | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const [manualOrientation, setManualOrientation] = useState<'white' | 'black' | 'auto'>('auto');
   const [theme, setTheme] = useState<Theme>(randomTheme());
+  const [boardSize, setBoardSize] = useState(500);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('kasparov-theme');
     return saved ? saved === 'dark' : true;
   });
+
+  // Responsive board size calculation
+  useEffect(() => {
+    const calculateSize = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      
+      if (screen === 'lobby') {
+        // Lobby needs space for text above and below
+        const size = Math.min(500, w - 60, h - 450);
+        setBoardSize(Math.max(280, size));
+      } else if (screen === 'playing') {
+        // Playing screen logic
+        if (w <= 1000) {
+           // Mobile/Column layout
+           const size = Math.min(w - 40, h - 350, 600);
+           setBoardSize(Math.max(300, size));
+        } else {
+           // Desktop/Row layout
+           // Sidebars are 280px each -> 560px total + margins
+           const availableW = w - 620;
+           const availableH = h - 200;
+           setBoardSize(Math.min(availableW, availableH, 750));
+        }
+      } else {
+        // Setup/Welcome screens
+        setBoardSize(Math.min(480, w - 40));
+      }
+    };
+    
+    calculateSize(); // Initial
+    window.addEventListener('resize', calculateSize);
+    return () => window.removeEventListener('resize', calculateSize);
+  }, [screen]); // Recalculate when screen changes
 
   // Apply theme to document
   useEffect(() => {
@@ -326,6 +357,153 @@ export default function App() {
     }
   }, [screen, gameState?.status, gameState?.themeSeed]);
 
+  // Polling for game updates (fallback for WebSocket)
+  useEffect(() => {
+    if (!gameState?.gameId) return;
+    if (gameState.status === "ended") return;
+
+    const poll = async () => {
+      try {
+        const serverGame = await indexerService.getGame(gameState.gameId);
+        if (!serverGame) return;
+
+        setGameState(prevState => {
+          if (!prevState) return null;
+          
+          let newState = { ...prevState };
+          let changed = false;
+
+          // Check if status changed
+          // Handle Lobby -> Active transition
+          if (serverGame.status === 'active' && prevState.status === 'lobby') {
+             console.log('[Poll] Game started!');
+             setScreen('playing');
+             if (game) {
+                game.updateState({ 
+                  status: 'active',
+                  whitePub: serverGame.whitePub,
+                  blackPub: serverGame.blackPub
+                });
+             }
+             newState.status = 'active';
+             newState.whitePub = serverGame.whitePub;
+             newState.blackPub = serverGame.blackPub;
+             changed = true;
+          }
+
+          // Check if FEN changed
+          if (serverGame.fen && serverGame.fen !== prevState.fen) {
+             console.log('[Poll] FEN changed');
+             playSound('move');
+             if (game) game.loadFEN(serverGame.fen);
+             newState.fen = serverGame.fen;
+             newState.turn = serverGame.turn || prevState.turn;
+             changed = true;
+          }
+
+          return changed ? newState : prevState;
+        });
+      } catch (e) {
+        console.error('[Poll] Error:', e);
+      }
+    };
+
+    const interval = setInterval(poll, 2000); // Poll every 2 seconds
+    return () => clearInterval(interval);
+  }, [gameState?.gameId, gameState?.status, game]);
+
+  // WebSocket for real-time game updates
+  useEffect(() => {
+    if (!gameState?.gameId) return;
+    
+    const host = window.location.hostname;
+    let wsUrl: string;
+    
+    // GitHub Codespaces - need port 8787 (must be PUBLIC)
+    // URL format: CODESPACE_NAME-PORT.app.github.dev
+    if (host.includes('.app.github.dev') || host.includes('.preview.app.github.dev')) {
+      // Replace the port number in the hostname (e.g., -5173 -> -8787)
+      const wsHost = host.replace(/-\d+\./, '-8787.');
+      wsUrl = `wss://${wsHost}/ws?game=${gameState.gameId}`;
+    } else {
+      // Local dev or production
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${window.location.host}/ws?game=${gameState.gameId}`;
+    }
+    
+    console.log('[WS] Connecting to:', wsUrl);
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+      console.log('[WS] Connected');
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'game' && msg.game) {
+          const serverGame = msg.game;
+          console.log('[WS] Game update:', serverGame);
+          
+          // Update our local game state with server state
+          // If server has different FEN (opponent moved), update board
+          setGameState(prevState => {
+            if (!prevState) return prevState;
+            
+            if (serverGame.fen !== prevState.fen) {
+              console.log('[WS] FEN changed, updating board');
+              playSound('move');
+              if (game) {
+                game.loadFEN(serverGame.fen);
+              }
+              return {
+                ...prevState,
+                fen: serverGame.fen,
+                turn: serverGame.turn,
+                status: serverGame.status === 'waiting' ? 'lobby' : serverGame.status === 'active' ? 'active' : 'ended',
+              };
+            }
+            
+            // Opponent joined - change status to active
+            if (serverGame.status === 'active' && prevState.status === 'lobby') {
+              console.log('[WS] Opponent joined, starting game');
+              if (game) {
+                game.updateState({ 
+                  status: 'active',
+                  whitePub: serverGame.white?.address || prevState.whitePub,
+                  blackPub: serverGame.black?.address || prevState.blackPub,
+                });
+              }
+              setScreen('playing');
+              return { 
+                ...prevState, 
+                status: 'active',
+                whitePub: serverGame.white?.address || prevState.whitePub,
+                blackPub: serverGame.black?.address || prevState.blackPub,
+              };
+            }
+            
+            return prevState;
+          });
+        }
+      } catch (e) {
+        console.error('[WS] Parse error:', e);
+      }
+    };
+    
+    ws.onerror = (e) => {
+      console.error('[WS] Error:', e);
+    };
+    
+    ws.onclose = () => {
+      console.log('[WS] Disconnected');
+    };
+    
+    return () => {
+      ws.close();
+    };
+  }, [gameState?.gameId, game]);
+
   const handleCreateGame = async () => {
     if (!walletAddress) {
       alert("Please connect a wallet first");
@@ -336,17 +514,18 @@ export default function App() {
     setTxPopup({ show: true, type: 'Creating Game...', txId: undefined, error: undefined });
 
     try {
-      // Random color assignment
-      const myColor = Math.random() < 0.5 ? "w" : "b";
-      
-      // Create game on server via API (so other players can find it)
+      // Create game on server via API - server assigns random color
       const indexedGame = await indexerService.createGame(walletAddress);
+      
+      // Creator is ALWAYS White
+      const myColor = "w";
+      console.log('[Create] I am White (creator). whitePub:', indexedGame.whitePub);
       
       const newGame = new ChessGame({
         gameId: indexedGame.gameId,
         myColor,
-        whitePub: myColor === "w" ? walletAddress : undefined,
-        blackPub: myColor === "b" ? walletAddress : null,
+        whitePub: indexedGame.whitePub,
+        blackPub: indexedGame.blackPub,
         status: "lobby",
       });
       
@@ -354,23 +533,28 @@ export default function App() {
       setGame(newGame);
       setGameState(state);
 
-      // Publish game-init (currently server-only, on-chain coming soon)
+      // Publish game-init to blockchain (MANDATORY)
       const result = await kaspaService.publishGameInit(indexedGame.gameId);
-      
-      if (result.success) {
-        console.log("Game created successfully");
-        setTxPopup({ show: true, type: '🎮 Game Created!', txId: result.txId, error: undefined });
+      if (result.success && result.txId) {
+        setTxPopup({ show: true, type: '🎮 Game Created On-Chain!', txId: result.txId, error: undefined });
       } else {
-        console.error("Game creation failed:", result.error);
-        setTxPopup({ show: true, type: '🎮 Game Created!', txId: undefined, error: result.error });
+        // Failed to publish - cannot create game
+        setTxPopup({ show: true, type: 'Failed to Create Game', txId: undefined, error: result.error || 'Transaction failed' });
+        // Reset state
+        setGame(null);
+        setGameState(null);
+        return;
       }
-      
-      // Change to lobby screen
+
+      // Go to lobby
       setScreen("lobby");
       
     } catch (e: any) {
       console.error("Failed to create game:", e);
       setTxPopup({ show: true, type: 'Error Creating Game', txId: undefined, error: e.message || 'Server error' });
+      // Reset state on error
+      setGame(null);
+      setGameState(null);
     }
   };
 
@@ -384,29 +568,33 @@ export default function App() {
     setTxPopup({ show: true, type: 'Joining Game...', txId: undefined, error: undefined });
 
     try {
-      // Fetch game from API
-      const indexedGame = await indexerService.getGame(gameId);
-      if (!indexedGame) {
-        setTxPopup({ show: true, type: 'Game Not Found', txId: undefined, error: `Game ID "${gameId}" does not exist. Make sure you have the correct ID.` });
-        return;
+      // Join game via API
+      // This tells the server we are joining, updates status to 'active', and assigns color
+      let joinedGame = await indexerService.joinGame(gameId, walletAddress);
+      
+      // Fallback: If join failed (e.g. game active), check if we are already a player trying to rejoin
+      if (!joinedGame) {
+         const existingGame = await indexerService.getGame(gameId);
+         if (existingGame && (existingGame.whitePub === walletAddress || existingGame.blackPub === walletAddress)) {
+             console.log('Rejoining existing game as player');
+             joinedGame = existingGame;
+         }
       }
 
-      // Join game via API
-      const joinedGame = await indexerService.joinGame(gameId, walletAddress);
       if (!joinedGame) {
         setTxPopup({ show: true, type: 'Cannot Join', txId: undefined, error: 'Game may already have 2 players or has ended.' });
         return;
       }
 
-      // Joiner gets the opposite color from creator
-      const creatorIsWhite = !!joinedGame.whitePub;
-      const myColor = creatorIsWhite ? "b" : "w";
+      // Joiner gets the opposite color from creator - determine from server response
+      const myColor = joinedGame.whitePub === walletAddress ? "w" : "b";
+      console.log('[Join] My color:', myColor, 'whitePub:', joinedGame.whitePub, 'blackPub:', joinedGame.blackPub);
       
       const newGame = new ChessGame({
         gameId,
         myColor,
-        whitePub: creatorIsWhite ? joinedGame.whitePub : walletAddress,
-        blackPub: creatorIsWhite ? walletAddress : joinedGame.blackPub,
+        whitePub: joinedGame.whitePub,
+        blackPub: joinedGame.blackPub,
         status: "active",
         fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
       });
@@ -415,14 +603,22 @@ export default function App() {
       setGame(newGame);
       setGameState(state);
 
-      // Publish game-join (currently server-only)
+      // Publish game-join to blockchain (MANDATORY)
       const result = await kaspaService.publishGameJoin(gameId);
-      
-      console.log("Joined game successfully:", gameId);
-      setTxPopup({ show: true, type: '🎯 Joined Game!', txId: result.txId, error: undefined });
+      if (result.success && result.txId) {
+        setTxPopup({ show: true, type: '🎯 Joined Game On-Chain!', txId: result.txId, error: undefined });
+      } else {
+        // Failed to publish - cannot join game
+        setTxPopup({ show: true, type: 'Failed to Join Game', txId: undefined, error: result.error || 'Transaction failed' });
+        // Reset state
+        setGame(null);
+        setGameState(null);
+        return;
+      }
 
       // Go directly to playing
       setScreen("playing");
+      setTxPopup(null); // Clear loading spinner initially
 
     } catch (e: any) {
       console.error("Failed to join game:", e);
@@ -438,54 +634,57 @@ export default function App() {
     setScreen("playing");
   };
 
-  const handleSquareClick = async (square: Square) => {
+  const handleSquareClick = (square: Square, piece: string | undefined) => {
     if (!game || !gameState) return;
+    if (gameState.status !== "active") return;
+    if (gameState.turn !== gameState.myColor) return;
 
     const result = game.handleSquareClick(square);
     
     if (result.action === "move" && result.updatedState && result.move) {
-      game.updateState(result.updatedState);
-      const newState = game.getState();
-      setGameState(newState);
+      const updatedState = result.updatedState;
+      // Get the UCI notation first
+      const uci = updatedState.moves![updatedState.moves!.length - 1];
+      
+      // Publish move to blockchain (MANDATORY)
+      kaspaService.publishMove(updatedState.gameId!, uci, updatedState.moves!.length).then(async (moveResult) => {
+        if (moveResult.success && moveResult.txId) {
+          console.log("Move published to DAG:", moveResult.txId);
+          
+          // Now update the game state and sync to server
+          game.updateState(updatedState);
+          const newState = game.getState();
+          setGameState(newState);
 
-      // Publish move to DAG
-      const uci = newState.moves[newState.moves.length - 1];
-      const publishResult = await kaspaService.publishMove(
-        newState.gameId,
-        uci,
-        newState.moves.length
-      );
-      
-      if (publishResult.success && publishResult.txId) {
-        console.log("Move published to DAG:", publishResult.txId);
-        setTxPopup({ show: true, type: '♟️ Move On-Chain!', txId: publishResult.txId, error: undefined });
-        
-        // Mock: index our own event
-        await indexerService.mockIndexEvent({
-          type: "move",
-          gameId: newState.gameId,
-          timestamp: Date.now(),
-          data: { uci, plyNumber: newState.moves.length },
-        });
-      } else {
-        // Move made locally but TX failed - show error but continue game
-        setTxPopup({ show: true, type: 'Move (Offline Mode)', txId: undefined, error: publishResult.error || 'No UTXOs - wallet needs funds' });
-        
-        await indexerService.mockIndexEvent({
-          type: "move",
-          gameId: newState.gameId,
-          timestamp: Date.now(),
-          data: { uci, plyNumber: newState.moves.length },
-        });
-      }
-      
-      // Check if game over
-      const gameOver = game.isGameOver();
-      if (gameOver.over) {
-        console.log("Game over:", gameOver.result);
-        game.updateState({ status: "ended" });
-        setGameState(game.getState());
-      }
+          // Sync to server with txid
+          if (walletAddress) {
+            const success = await indexerService.recordMove(newState.gameId, walletAddress, uci, moveResult.txId);
+            if (success) {
+              console.log('[Move] Synced to server:', uci);
+            } else {
+              console.error('[Move] Failed to sync to server');
+            }
+          }
+
+          setTxPopup({ show: true, type: '♟ Move On-Chain!', txId: moveResult.txId, error: undefined });
+          
+          // Check if game over
+          const gameOver = game.isGameOver();
+          if (gameOver.over) {
+            console.log("Game over:", gameOver.result);
+            game.updateState({ status: "ended" });
+            setGameState(game.getState());
+          }
+        } else {
+          // Failed to publish - revert the move
+          console.error("Move failed to publish:", moveResult.error);
+          setTxPopup({ show: true, type: 'Move Failed', txId: undefined, error: moveResult.error || 'Transaction failed' });
+          // Don't update game state
+        }
+      }).catch(e => {
+        console.error("Move publish error:", e);
+        setTxPopup({ show: true, type: 'Move Failed', txId: undefined, error: 'Network error' });
+      });
     } else if (result.updatedState) {
       game.updateState(result.updatedState);
       setGameState(game.getState());
@@ -493,37 +692,84 @@ export default function App() {
   };
 
   // Handle drag and drop moves
-  const handlePieceDrop = (sourceSquare: Square, targetSquare: Square, piece: string): boolean => {
-    if (!game || !gameState) return false;
-    if (gameState.turn !== gameState.myColor) return false;
-
-    // Try the move
-    const result = game.tryMove(sourceSquare, targetSquare);
-    if (!result) return false;
-
-    const newState = game.getState();
-    setGameState(newState);
-
-    // Publish move async (don't block the UI)
-    const uci = newState.moves[newState.moves.length - 1];
-    kaspaService.publishMove(newState.gameId, uci, newState.moves.length);
+  const handlePieceDrop = async (sourceSquare: Square, targetSquare: Square, piece: string): Promise<boolean> => {
+    console.log('[Move] Drop:', sourceSquare, '->', targetSquare);
     
-    // Sync with server
-    indexerService.mockIndexEvent({
-      type: "move",
-      gameId: newState.gameId,
-      timestamp: Date.now(),
-      data: { uci, plyNumber: newState.moves.length },
-    });
-
-    // Check game over
-    const gameOver = game.isGameOver();
-    if (gameOver.over) {
-      game.updateState({ status: "ended" });
-      setGameState(game.getState());
+    if (!game || !gameState) {
+      console.log('[Move] No game state');
+      return false;
     }
 
-    return true;
+    // Ensure it's my turn
+    if (gameState.turn !== gameState.myColor) {
+      console.log('[Move] Not my turn');
+      return false;
+    }
+
+    try {
+      // Use chess.js directly to validate and make the move
+      const chess = game.getChess();
+      const move = chess.move({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: 'q', // Auto-queen
+      });
+
+      if (!move) {
+        console.log('[Move] Invalid move');
+        return false;
+      }
+
+      // Update state
+      const uci = sourceSquare + targetSquare + (move.promotion || '');
+      const newFen = chess.fen();
+      const newTurn = chess.turn();
+      
+      console.log('[Move] Success:', uci, 'FEN:', newFen);
+      playSound(move.captured ? 'capture' : 'move');
+
+      // Publish move to blockchain (MANDATORY)
+      const moveResult = await kaspaService.publishMove(gameState.gameId, uci, gameState.moves.length + 1);
+      if (moveResult.success && moveResult.txId) {
+        console.log("Move published to DAG:", moveResult.txId);
+        
+        // Update game state
+        setGameState(prev => prev ? {
+          ...prev,
+          fen: newFen,
+          turn: newTurn,
+          moves: [...prev.moves, uci],
+        } : prev);
+
+        // Sync to server with txid
+        if (walletAddress && gameState.gameId) {
+          const ok = await indexerService.recordMove(gameState.gameId, walletAddress, uci, moveResult.txId);
+          console.log('[Move] Server sync:', ok ? 'success' : 'failed');
+        }
+
+        setTxPopup({ show: true, type: '♟ Move On-Chain!', txId: moveResult.txId, error: undefined });
+
+        // Check if game over
+        const gameOver = game.isGameOver();
+        if (gameOver.over) {
+          console.log("Game over:", gameOver.result);
+          game.updateState({ status: "ended" });
+          setGameState(game.getState());
+        }
+
+        return true;
+      } else {
+        // Failed to publish - revert the move
+        console.error("Move failed to publish:", moveResult.error);
+        setTxPopup({ show: true, type: 'Move Failed', txId: undefined, error: moveResult.error || 'Transaction failed' });
+        // Revert the chess move
+        chess.undo();
+        return false;
+      }
+    } catch (e) {
+      console.error('[Move] Error:', e);
+      return false;
+    }
   };
 
   const handlePromotion = async (piece: "q" | "r" | "b" | "n") => {
@@ -532,9 +778,8 @@ export default function App() {
     const move = game.handlePromotion(promotionMove.from, promotionMove.to, piece);
     if (move) {
       const newState = game.getState();
-      setGameState(newState);
       
-      // Publish move to DAG
+      // Publish move to DAG (MANDATORY)
       const uci = newState.moves[newState.moves.length - 1];
       const result = await kaspaService.publishMove(
         newState.gameId,
@@ -544,9 +789,15 @@ export default function App() {
       
       if (result.success && result.txId) {
         console.log("Promotion published to DAG:", result.txId);
+        setGameState(newState);
         setTxPopup({ show: true, type: '♛ Promotion On-Chain!', txId: result.txId, error: undefined });
       } else {
-        setTxPopup({ show: true, type: 'Promotion (Offline Mode)', txId: undefined, error: result.error || 'No UTXOs - wallet needs funds' });
+        // Failed to publish - cannot make promotion
+        console.error("Promotion failed to publish:", result.error);
+        setTxPopup({ show: true, type: 'Promotion Failed', txId: undefined, error: result.error || 'Transaction failed' });
+        // Revert the move
+        game.getChess().undo();
+        setGameState(game.getState());
       }
     }
     
@@ -1123,18 +1374,42 @@ export default function App() {
       <div className="app">
         <div className="lobby">
           <h2>Game Lobby</h2>
-          <p>Game ID: <code>{gameState.gameId}</code></p>
-          <p>Your color: {gameState.myColor === "w" ? "White" : "Black"}</p>
+          
+          <div style={{ background: 'rgba(255,255,255,0.05)', padding: '20px', borderRadius: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+            <p style={{ margin: 0, opacity: 0.7 }}>Share this Game ID with your friend</p>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <code style={{ fontSize: '1.5rem', padding: '8px 16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', border: '1px solid rgba(73, 234, 203, 0.3)', color: '#49eacb' }}>
+                {gameState.gameId}
+              </code>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(gameState.gameId);
+                  playSound('notify');
+                }} 
+                className="btn btn-secondary"
+                title="Copy Game ID"
+              >
+                📋 Copy
+              </button>
+            </div>
+            <p style={{ fontSize: '0.9rem', color: '#888' }}>
+              Your color: <strong style={{ color: gameState.myColor === 'w' ? '#fff' : '#aaa' }}>{gameState.myColor === "w" ? "White" : "Black"}</strong>
+            </p>
+          </div>
+
+          <div className="waiting-pulse" style={{ marginBottom: '20px', color: '#49eacb', display: 'flex', alignItems: 'center', gap: '8px' }}>
+             <span className="pulse-dot"></span> Waiting for opponent to join...
+          </div>
           
           <div className="board-preview-large">
             <Chessboard
               position={gameState.fen}
-              boardOrientation={game?.getBoardOrientation()}
+              boardOrientation={gameState.myColor === "b" ? "black" : "white"}
               customDarkSquareStyle={{ backgroundColor: theme.darkSquare }}
               customLightSquareStyle={{ backgroundColor: theme.lightSquare }}
               arePiecesDraggable={false}
               showBoardNotation={true}
-              boardWidth={480}
+              boardWidth={boardSize}
             />
           </div>
           
@@ -1160,50 +1435,124 @@ export default function App() {
   }
 
   if (screen === "playing" && gameState && game) {
+    const orientation = manualOrientation !== 'auto' ? manualOrientation : (gameState.myColor === 'b' ? 'black' : 'white');
+    
     return (
-      <div className="app">
-        <div className="game-container">
-          <div className="game-header">
-            <h3>Game: {gameState.gameId}</h3>
-            <p>
-              Turn: {gameState.turn === "w" ? "White" : "Black"}
-              {gameState.turn === gameState.myColor && " (You)"}
-            </p>
+      <div className="app game-layout-wrapper">
+        {/* Left Stats Panel */}
+        <div className="game-panel left-panel">
+           <KaspaSidePanel position="left" />
+           
+           <div className="player-info-card opponent">
+              <div className="avatar-placeholder" style={{background: gameState.turn === (gameState.myColor === 'w' ? 'b' : 'w') ? '#49eacb' : '#333'}}></div>
+              <div className="player-details">
+                 <span className="player-label">Opponent</span>
+                 <span className="player-name">{gameState.myColor === "w" ? "Black" : "White"}</span>
+                 <span className="player-status">{gameState.turn === (gameState.myColor === 'w' ? 'b' : 'w') ? 'Thinking...' : 'Waiting'}</span>
+              </div>
+           </div>
+        </div>
+
+        {/* Center Board Area */}
+        <div className="game-center-area">
+          <div className="game-header-compact">
+            <h3 style={{margin: 0, fontSize: '1.2rem'}}>Game: <span className="highlight-text">{gameState.gameId}</span></h3>
+            <div className="turn-indicator" style={{
+                background: gameState.turn === gameState.myColor ? 'rgba(73, 234, 203, 0.2)' : 'rgba(255,255,255,0.1)',
+                color: gameState.turn === gameState.myColor ? '#49eacb' : '#aaa',
+                border: gameState.turn === gameState.myColor ? '1px solid #49eacb' : '1px solid transparent'
+            }}>
+                {gameState.turn === gameState.myColor ? "🟢 YOUR TURN" : "⏳ OPPONENT'S TURN"}
+            </div>
           </div>
 
-          <div className="board-container-large">
+          <div className="board-container-large" style={{ 
+            pointerEvents: 'auto',
+            position: 'relative',
+            zIndex: 1000,
+            padding: '10px',
+            border: '2px solid rgba(73, 234, 203, 0.3)',
+            boxShadow: '0 0 30px rgba(0,0,0,0.5)',
+            background: '#1a1a24'
+          }}>
             <Chessboard
+              id="PlayableBoard"
+              key={orientation} 
               position={gameState.fen}
-              boardOrientation={game.getBoardOrientation()}
-              onSquareClick={handleSquareClick}
-              onPieceDrop={handlePieceDrop}
-              customDarkSquareStyle={{ backgroundColor: theme.darkSquare }}
-              customLightSquareStyle={{ backgroundColor: theme.lightSquare }}
-              customSquareStyles={getSquareStyles()}
-              arePiecesDraggable={gameState.turn === gameState.myColor}
-              showBoardNotation={true}
-              boardWidth={560}
+              boardOrientation={orientation}
+              onPieceDrop={(source: string, target: string, piece: string) => handlePieceDrop(source as Square, target as Square, piece)}
+              arePiecesDraggable={true}
+              boardWidth={boardSize}
+              customDarkSquareStyle={{ backgroundColor: '#2d3748' }}
+              customLightSquareStyle={{ backgroundColor: '#49eacb', opacity: 0.8 }}
+              customBoardStyle={{
+                borderRadius: '4px',
+                boxShadow: '0 5px 15px rgba(0, 0, 0, 0.5)'
+              }}
             />
           </div>
+          
+          <div className="game-controls-bottom">
+             <button onClick={() => setManualOrientation(prev => prev === 'white' ? 'black' : 'white')} className="btn btn-secondary icon-btn">
+                 🔄 Flip Board
+             </button>
+             <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(gameState.gameId);
+                    playSound('notify');
+                  }} 
+                  className="btn btn-secondary icon-btn"
+              >
+                  📋 Copy ID
+              </button>
+          </div>
+        </div>
 
-          <div className="game-info">
-            <h4>Moves</h4>
-            <div className="moves-list">
+        {/* Right Info Panel */}
+        <div className="game-panel right-panel">
+            <KaspaSidePanel position="right" hideBlueScore={window.innerHeight < 800} />
+
+            <div className="player-info-card self">
+              <div className="avatar-placeholder" style={{background: gameState.turn === gameState.myColor ? '#49eacb' : '#333'}}></div>
+              <div className="player-details">
+                 <span className="player-label">You</span>
+                 <span className="player-name">{gameState.myColor === "w" ? "White" : "Black"}</span>
+                 <span className="player-status">{gameState.turn === gameState.myColor ? 'Your Turn' : 'Waiting'}</span>
+              </div>
+           </div>
+
+           <div className="donate-card">
+             <a
+               href="https://kas.coffee/kasparov"
+               target="_blank"
+               rel="noopener noreferrer"
+               className="donate-link"
+             >
+               <span role="img" aria-label="coffee">☕</span> Support Kasparov
+             </a>
+           </div>
+
+           <div className="game-info-box">
+            <h4>Move History</h4>
+            <div className="moves-list-scroll">
               {gameState.moves.map((move, i) => (
-                <span key={i} className="move">
-                  {Math.floor(i / 2) + 1}.{i % 2 === 0 ? "" : ".."} {move}
-                </span>
+                <div key={i} className={`move-row ${i === gameState.moves.length - 1 ? 'latest' : ''}`}>
+                  <span className="move-num">{Math.floor(i / 2) + 1}.</span>
+                  <span className="move-alg">{i % 2 === 0 ? "" : "..."} {move}</span>
+                </div>
               ))}
+              <div ref={(el) => el?.scrollIntoView({ behavior: 'smooth' })} />
             </div>
           </div>
-
-          {gameState.status === "ended" && (
-            <div className="game-over">
-              <h3>Game Over</h3>
-              <p>{game.isGameOver().result}</p>
-            </div>
-          )}
         </div>
+
+        {gameState.status === "ended" && (
+            <div className="game-over-modal">
+              <h3>Game Over</h3>
+              <p className="result-text">{game.isGameOver().result}</p>
+              <button onClick={() => window.location.reload()} className="btn btn-primary">New Game</button>
+            </div>
+        )}
 
         {showPromotion && (
           <div className="promotion-modal">
