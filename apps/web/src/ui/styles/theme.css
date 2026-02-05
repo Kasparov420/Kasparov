@@ -26,6 +26,7 @@ body{margin:0;background:linear-gradient(135deg,#071023 0%,#0c0f18 100%);font-fa
 .walletBtn{width:44px;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:var(--text);cursor:pointer;display:grid;place-items:center;transition:all .2s}
 .walletBtn:hover{border-color:rgba(34,197,94,0.45);box-shadow:0 0 0 1px rgba(34,197,94,0.12) inset}
 .pill{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;background:var(--glass);border:1px solid rgba(34,197,94,0.12)}
+.balance{color:var(--accent);font-weight:600;font-size:12px}
 
 .boardWrap{padding:18px;border-radius:14px;background:linear-gradient(180deg,rgba(0,0,0,0.22),rgba(0,0,0,0.12));border:1px solid rgba(0,255,163,0.06);display:inline-block}
 .cornerBadges{position:absolute;right:24px;top:92px;display:flex;flex-direction:column;gap:6px}

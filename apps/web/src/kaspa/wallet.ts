@@ -62,6 +62,190 @@ export function getConfiguredEndpoint(): string {
   return getWrpcEndpoint();
 }
 
+// ============== Wallet Session Types ==============
+
+export type KaspaNetwork =
+  | "kaspa_mainnet"
+  | "kaspa_testnet_12"
+  | "kaspa_testnet_11"
+  | "kaspa_testnet_10"
+  | "kaspa_devnet";
+
+export type WalletSession = {
+  kind: "kasware" | "kastle" | "internal" | "other";
+  address: string;
+  publicKey?: string;
+  network: KaspaNetwork;
+};
+
+// ============== External Wallet Providers ==============
+
+const MAX_PAYLOAD_BYTES = 100;
+
+/**
+ * Detect available wallet providers in the browser
+ */
+export async function detectWallets(): Promise<{ kasware: boolean; kastle: boolean; other: string[] }> {
+  const wallets = { kasware: false, kastle: false, other: [] as string[] };
+  
+  if (typeof window !== 'undefined') {
+    try {
+      if ((window as any).kasware) {
+        wallets.kasware = true;
+      }
+    } catch {}
+    
+    try {
+      if ((window as any).kastle) {
+        wallets.kastle = true;
+      }
+    } catch {}
+    
+    const knownWallets = ['kaspa', 'wallet'];
+    for (const wallet of knownWallets) {
+      try {
+        if ((window as any)[wallet]) {
+          if (wallet !== 'kasware' && wallet !== 'kastle') {
+            wallets.other.push(wallet);
+          }
+        }
+      } catch {}
+    }
+  }
+  
+  return wallets;
+}
+
+/**
+ * Connect to Kasware wallet
+ */
+export async function connectKasware(): Promise<WalletSession> {
+  if (typeof window === 'undefined') {
+    throw new Error('Browser environment required');
+  }
+  
+  const kasware = (window as any).kasware;
+  if (!kasware) {
+    throw new Error('Kasware wallet not found. Please install Kasware extension.');
+  }
+  
+  try {
+    // Try different API patterns for Kasware
+    let accounts: string[] = [];
+    
+    if (kasware.requestAccounts && typeof kasware.requestAccounts === 'function') {
+      accounts = await kasware.requestAccounts();
+    } else if (kasware.connect && typeof kasware.connect === 'function') {
+      const result = await kasware.connect();
+      accounts = result.accounts || result.addresses || [result.address];
+    } else if (kasware.getAccounts && typeof kasware.getAccounts === 'function') {
+      accounts = await kasware.getAccounts();
+    } else if (kasware.enable && typeof kasware.enable === 'function') {
+      accounts = await kasware.enable();
+    } else {
+      // Try direct property access
+      accounts = kasware.accounts || kasware.addresses || [];
+      if (kasware.address) accounts = [kasware.address];
+    }
+    
+    if (!accounts || accounts.length === 0) {
+      throw new Error('No accounts available in Kasware. Please unlock your wallet and try again.');
+    }
+    
+    const address = accounts[0];
+    console.log('[Kasware] Connected:', address);
+    
+    return {
+      kind: 'kasware',
+      address,
+      network: 'kaspa_mainnet'
+    };
+  } catch (e: any) {
+    console.error('[Kasware] Connection failed:', e);
+    throw new Error(`Kasware connection failed: ${e.message || 'Unknown error'}`);
+  }
+}
+
+/**
+ * Connect to Kastle wallet
+ */
+export async function connectKastle(): Promise<WalletSession> {
+  if (typeof window === 'undefined') {
+    throw new Error('Browser environment required');
+  }
+  
+  const kastle = (window as any).kastle;
+  if (!kastle) {
+    throw new Error('Kastle wallet not found. Please install Kastle extension from https://kastle.app/');
+  }
+  
+  try {
+    console.log('[Kastle] Attempting connection...');
+    console.log('[Kastle] Available methods:', Object.getOwnPropertyNames(kastle).filter(name => typeof kastle[name] === 'function'));
+    
+    // Try different API patterns for Kastle
+    let accounts: string[] = [];
+    
+    // Try the most common patterns first
+    if (kastle.request && typeof kastle.request === 'function') {
+      console.log('[Kastle] Trying kastle.request...');
+      try {
+        const result = await kastle.request({ method: 'kaspa_getAccounts' });
+        accounts = Array.isArray(result) ? result : [result];
+      } catch (e) {
+        console.log('[Kastle] kastle.request failed:', e);
+      }
+    }
+    
+    if (accounts.length === 0 && kastle.requestAccounts && typeof kastle.requestAccounts === 'function') {
+      console.log('[Kastle] Trying kastle.requestAccounts...');
+      accounts = await kastle.requestAccounts();
+    }
+    
+    if (accounts.length === 0 && kastle.connect && typeof kastle.connect === 'function') {
+      console.log('[Kastle] Trying kastle.connect...');
+      const result = await kastle.connect();
+      accounts = result.accounts || result.addresses || [result.address];
+    }
+    
+    if (accounts.length === 0 && kastle.getAccounts && typeof kastle.getAccounts === 'function') {
+      console.log('[Kastle] Trying kastle.getAccounts...');
+      accounts = await kastle.getAccounts();
+    }
+    
+    if (accounts.length === 0 && kastle.enable && typeof kastle.enable === 'function') {
+      console.log('[Kastle] Trying kastle.enable...');
+      accounts = await kastle.enable();
+    }
+    
+    // Try direct property access as fallback
+    if (accounts.length === 0) {
+      console.log('[Kastle] Trying direct property access...');
+      accounts = kastle.accounts || kastle.addresses || [];
+      if (kastle.address && accounts.length === 0) accounts = [kastle.address];
+    }
+    
+    if (!accounts || accounts.length === 0) {
+      throw new Error('No accounts available in Kastle. Please unlock your wallet and ensure you have at least one account.');
+    }
+    
+    const address = accounts[0];
+    console.log('[Kastle] Connected successfully:', address);
+    
+    return {
+      kind: 'kastle',
+      address,
+      network: 'kaspa_mainnet'
+    };
+  } catch (e: any) {
+    console.error('[Kastle] Connection failed:', e);
+    if (e.message && e.message.includes('User rejected')) {
+      throw new Error('Kastle connection rejected by user. Please approve the connection in Kastle.');
+    }
+    throw new Error(`Kastle connection failed: ${e.message || 'Unknown error'}. Make sure Kastle is unlocked and try again.`);
+  }
+}
+
 // ============== Kaspa Bech32 Encoding ==============
 // Kaspa uses a custom bech32 variant with 8-character checksum
 // Based on rusty-kaspa crypto/addresses/src/bech32.rs
@@ -144,6 +328,38 @@ function bech32Encode(hrp: string, payload5bit: number[]): string {
 }
 
 /**
+ * Decode Kaspa address from bech32 format
+ */
+function bech32Decode(hrp: string, addr: string): Uint8Array {
+  if (!addr.startsWith(hrp + ':')) throw new Error('Invalid HRP');
+  const data = addr.slice(hrp.length + 1);
+  const values = Array.from(data).map(c => {
+    const idx = CHARSET.indexOf(c);
+    if (idx === -1) throw new Error('Invalid character');
+    return idx;
+  });
+  // Skip checksum (last 8 chars)
+  const payload5bit = values.slice(0, -8);
+  // Convert 5-bit to 8-bit
+  let buff = 0;
+  let bits = 0;
+  const result: number[] = [];
+  for (const d of payload5bit) {
+    buff = (buff << 5) | d;
+    bits += 5;
+    while (bits >= 8) {
+      bits -= 8;
+      result.push(buff >> bits);
+      buff &= (1 << bits) - 1;
+    }
+  }
+  if (bits > 0) {
+    result.push(buff << (8 - bits));
+  }
+  return new Uint8Array(result);
+}
+
+/**
  * Create Kaspa address from public key
  * 
  * Kaspa P2PK (schnorr) addresses use the raw 32-byte public key (x-coordinate),
@@ -189,11 +405,28 @@ export class KaspaWallet {
   private publicKey: Uint8Array | null = null;
   private address: string = '';
   private connected: boolean = false;
+  private session: WalletSession | null = null;
+
+  /**
+   * Connect to an external wallet session
+   */
+  async connectToWallet(session: WalletSession): Promise<void> {
+    this.session = session;
+    this.address = session.address;
+    this.connected = true;
+    console.log(`[Kaspa] Connected to ${session.kind} wallet:`, session.address);
+  }
 
   /**
    * Initialize wallet from mnemonic (12 or 24 words)
    */
   async initFromMnemonic(mnemonic: string): Promise<void> {
+    console.log('[Kaspa] Initializing internal wallet from mnemonic...');
+    console.log('[Kaspa] Previous session state:', this.session ? `External: ${this.session.kind}` : 'None');
+    
+    // Clear any external wallet session when importing internal wallet
+    this.session = null;
+    console.log('[Kaspa] Session cleared for internal wallet');
     const normalizedMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
     const words = normalizedMnemonic.split(' ');
     
@@ -215,6 +448,7 @@ export class KaspaWallet {
       const hdKey = HDKey.fromMasterSeed(seed);
       
       // Derive Kaspa path: m/44'/111111'/0'/0/0
+      console.log('[Kaspa] Deriving key from path: m/44\'/111111\'/0\'/0/0');
       const derived = hdKey.derive("m/44'/111111'/0'/0/0");
       
       if (!derived.privateKey || !derived.publicKey) {
@@ -228,6 +462,10 @@ export class KaspaWallet {
       this.connected = true;
       
       // Debug: show public key and address
+      console.log('[Kaspa] Wallet initialized:');
+      console.log('[Kaspa] Address:', this.address);
+      console.log('[Kaspa] Public key (33 bytes):', this.toHex(this.publicKey));
+      console.log('[Kaspa] Private key (first 8 bytes):', this.toHex(this.privateKey.slice(0, 8)));
       const pubkey32 = this.publicKey.length === 33 ? this.publicKey.slice(1) : this.publicKey;
       console.log('[Kaspa] Wallet initialized');
       console.log('[Kaspa] Pubkey (32-byte x):', Array.from(pubkey32).map(b => b.toString(16).padStart(2, '0')).join(''));
@@ -242,6 +480,12 @@ export class KaspaWallet {
    * Initialize wallet from private key (64-char hex)
    */
   async initFromPrivateKey(privateKeyHex: string): Promise<void> {
+    console.log('[Kaspa] Initializing internal wallet from private key...');
+    console.log('[Kaspa] Previous session state:', this.session ? `External: ${this.session.kind}` : 'None');
+    
+    // Clear any external wallet session when importing internal wallet
+    this.session = null;
+    console.log('[Kaspa] Session cleared for internal wallet');
     let keyHex = privateKeyHex.trim().toLowerCase();
     if (keyHex.startsWith('0x')) {
       keyHex = keyHex.slice(2);
@@ -327,19 +571,48 @@ export class KaspaWallet {
     }
 
     const payload = encodeEvent(event);
-    
-    if (!isPayloadSafe(payload)) {
+    const payloadBytes = new TextEncoder().encode(payload);
+
+    if (payloadBytes.length > 150) {
       return { success: false, error: 'Payload too large (>150 bytes)' };
     }
 
     console.log('[Kaspa] Publishing event:', payload);
     console.log('[Kaspa] From address:', this.address);
 
+    return this.publishWithPayload(payloadBytes);
+  }
+
+  /**
+   * Publish raw payload bytes to Kaspa DAG
+   * For custom payload formats (like chess moves)
+   */
+  async publishWithPayload(payloadBytes: Uint8Array): Promise<TxResult> {
+    if (!this.isConnected()) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+
+    console.log('[Kaspa] Publishing payload:', this.toHex(payloadBytes));
+    console.log('[Kaspa] From address:', this.address);
+    console.log('[Kaspa] Session check:', this.session ? `External wallet: ${this.session.kind}` : 'Internal wallet');
+
+    // Handle external wallets differently
+    if (this.session && this.session.kind !== 'internal') {
+      console.log('[Kaspa] Using external wallet logic for:', this.session.kind);
+      return this.publishWithExternalWallet(payloadBytes);
+    }
+
+    console.log('[Kaspa] Using internal wallet logic');
+
     try {
       // Get UTXOs
       const utxos = await this.getUtxos();
       if (!utxos || utxos.length === 0) {
-        return { success: false, error: 'No UTXOs available - wallet needs funds to send transactions' };
+        const address = this.getAddress();
+        return {
+          success: false,
+          error: `No funds in wallet. Send at least 0.00002 KAS to: ${address} to enable transactions. Use any Kaspa wallet or exchange to fund this address.`
+        };
       }
 
       // Calculate balance
@@ -347,21 +620,23 @@ export class KaspaWallet {
       for (const utxo of utxos) {
         totalInput += BigInt(utxo.utxoEntry?.amount || 0);
       }
-      
+
       console.log('[Kaspa] Balance:', totalInput, 'sompi');
       console.log('[Kaspa] UTXOs:', utxos.length);
 
+      // Minimum transaction amount (5 KAS = 500000000 sompi) - higher amount as requested
+      const MIN_TX_AMOUNT = 500000000n;
       // Minimum transaction fee (1000 sompi = 0.00001 KAS)
       const FEE = 1000n;
-      // Minimum output value
-      const MIN_OUTPUT = 294n;
-      
-      if (totalInput < FEE + MIN_OUTPUT) {
-        return { success: false, error: `Insufficient funds. Need at least ${FEE + MIN_OUTPUT} sompi, have ${totalInput}` };
+
+      if (totalInput < MIN_TX_AMOUNT + FEE) {
+        const needed = Number(MIN_TX_AMOUNT + FEE) / 1e8;
+        const have = Number(totalInput) / 1e8;
+        return { success: false, error: `Insufficient funds. Need at least ${needed.toFixed(5)} KAS to make transactions. You have ${have.toFixed(8)} KAS. Send more funds to: ${this.getAddress()}` };
       }
 
-      // Build and submit transaction
-      const result = await this.buildAndSubmitTransaction(utxos, payload, totalInput, FEE);
+      // Build and submit transaction with fixed 0.2 KAS amount
+      const result = await this.buildAndSubmitTransaction(utxos, payloadBytes, MIN_TX_AMOUNT, FEE);
       return result;
     } catch (e: any) {
       console.error('[Kaspa] Transaction failed:', e);
@@ -370,17 +645,126 @@ export class KaspaWallet {
   }
 
   /**
+   * Publish transaction using external wallet
+   */
+  private async publishWithExternalWallet(payloadBytes: Uint8Array): Promise<TxResult> {
+    console.log('🚀 [EXTERNAL WALLET] Starting transaction process...');
+    console.log('📋 [EXTERNAL WALLET] Payload bytes:', payloadBytes.length);
+
+    // Add a very visible alert to confirm we're reaching this code
+    alert('🔥 EXTERNAL WALLET: Attempting transaction with ' + this.session?.kind + ' wallet!');
+
+    if (!this.session) {
+      console.error('❌ [EXTERNAL WALLET] No wallet session available');
+      return { success: false, error: 'No wallet session' };
+    }
+
+    console.log('✅ [EXTERNAL WALLET] Session found:', this.session.kind, this.session.address);
+
+    try {
+      let provider: any = null;
+
+      if (this.session.kind === 'kasware') {
+        provider = (window as any).kasware;
+        console.log('🔍 [EXTERNAL WALLET] Kasware provider found:', !!provider);
+      } else if (this.session.kind === 'kastle') {
+        provider = (window as any).kastle;
+        console.log('🔍 [EXTERNAL WALLET] Kastle provider found:', !!provider);
+      } else {
+        console.error('❌ [EXTERNAL WALLET] Unsupported wallet type:', this.session.kind);
+        return { success: false, error: `Unsupported wallet type: ${this.session.kind}` };
+      }
+
+      if (!provider) {
+        console.error('❌ [EXTERNAL WALLET] Provider not available for', this.session.kind);
+        return { success: false, error: `${this.session.kind} wallet not available` };
+      }
+
+      console.log('🔧 [EXTERNAL WALLET] Provider methods:', Object.getOwnPropertyNames(provider).filter(name => typeof provider[name] === 'function'));
+      console.log('📊 [EXTERNAL WALLET] Provider properties:', Object.keys(provider));
+      console.log('🎯 [EXTERNAL WALLET] Full provider object:', provider);
+
+      // Try the absolute simplest approach first - just call send with basic params
+      try {
+        console.log('🎯 [EXTERNAL WALLET] Trying simplest send method...');
+
+        if (typeof provider.send === 'function') {
+          console.log('✅ [EXTERNAL WALLET] Found send method, calling with basic params...');
+          const result = await provider.send({
+            to: 'kaspa:qr6vs4wy4m3za6mzchj05x3902qrtklkyn8s0u8g2gv6mrctzdzx7pnhqxka2',
+            amount: '100000', // 0.001 KAS in sompi
+            data: this.toHex(payloadBytes)
+          });
+          console.log('🎉 [EXTERNAL WALLET] Send result:', result);
+          return { success: true, txId: result?.txId || result?.transactionId || result?.hash || 'unknown' };
+        }
+
+        // Try sendKaspa if available
+        if (typeof provider.sendKaspa === 'function') {
+          console.log('✅ [EXTERNAL WALLET] Found sendKaspa method, calling...');
+          const result = await provider.sendKaspa({
+            address: 'kaspa:qr6vs4wy4m3za6mzchj05x3902qrtklkyn8s0u8g2gv6mrctzdzx7pnhqxka2',
+            amount: '100000', // 0.001 KAS in sompi
+            data: this.toHex(payloadBytes)
+          });
+          console.log('🎉 [EXTERNAL WALLET] sendKaspa result:', result);
+          return { success: true, txId: result?.txId || result?.transactionId || result?.hash || 'unknown' };
+        }
+
+        console.log('❌ [EXTERNAL WALLET] No basic send methods found');
+        return { success: false, error: 'No compatible send method found' };
+
+      } catch (error) {
+        console.error('💥 [EXTERNAL WALLET] Simple send failed:', error);
+        const errorMsg = (error as Error).message || String(error);
+        if (errorMsg.includes('JSON')) {
+          return { success: false, error: 'Transaction failed - please ensure your wallet has sufficient KAS funds (at least 1 KAS per move)' };
+        }
+        return { success: false, error: `Send failed: ${errorMsg}` };
+      }
+    } catch (e: any) {
+      console.error(`[${this.session.kind}] Transaction failed:`, e);
+      return { 
+        success: false, 
+        error: e.message || 'External wallet transaction failed' 
+      };
+    }
+  }
+
+  /**
+   * Convert Kaspa address to script public key
+   */
+  private addressToScriptPubKey(address: string): string {
+    // Remove 'kaspa:' prefix
+    const cleanAddress = address.replace('kaspa:', '');
+    
+    // Decode bech32
+    const decoded = bech32Decode('kaspa', cleanAddress);
+    
+    // Extract payload (skip version byte)
+    const payload = decoded.slice(1);
+    
+    // Convert to hex
+    const pubkeyHex = Array.from(payload).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    // Build P2PK script: 0x20 + pubkey + 0xac
+    return '20' + pubkeyHex + 'ac';
+  }
+
+  /**
    * Build and submit a transaction via REST API
    */
   private async buildAndSubmitTransaction(
     utxos: any[],
-    opReturnData: string,
-    totalInput: bigint,
+    payloadBytes: Uint8Array,
+    txAmount: bigint,
     fee: bigint
   ): Promise<TxResult> {
     if (!this.privateKey || !this.publicKey) {
       return { success: false, error: 'Wallet not initialized' };
     }
+
+    const totalInput = utxos.reduce((sum: bigint, utxo: any) => sum + BigInt(utxo.amount || 0), 0n);
 
     try {
       // Get the 32-byte x-coordinate of the public key for Schnorr
@@ -398,7 +782,15 @@ export class KaspaWallet {
         if (utxoScript.length === 68) {
           const utxoPubkey = utxoScript.slice(2, 66);
           console.log('[Kaspa] UTXO pubkey:', utxoPubkey);
+          console.log('[Kaspa] Wallet pubkey:', walletPubkeyHex);
           console.log('[Kaspa] Pubkeys match:', utxoPubkey.toLowerCase() === walletPubkeyHex.toLowerCase());
+          if (utxoPubkey.toLowerCase() !== walletPubkeyHex.toLowerCase()) {
+            console.error('[Kaspa] ERROR: UTXO does not belong to wallet!');
+            return { success: false, error: 'UTXO pubkey mismatch - wallet may be using wrong derivation path' };
+          }
+        } else {
+          console.error('[Kaspa] ERROR: Invalid UTXO script format:', utxoScript);
+          return { success: false, error: 'Invalid UTXO script format' };
         }
       }
       
@@ -423,18 +815,34 @@ export class KaspaWallet {
       const scriptPubKey = '20' + pubkeyHex + 'ac';
       
       // Build transaction outputs
+      // Send fixed amount to sink address, and change back to self
+      const sinkAddress = 'kaspa:qr6vs4wy4m3za6mzchj05x3902qrtklkyn8s0u8g2gv6mrctzdzx7pnhqxka2';
+      const sinkScriptPubKey = this.addressToScriptPubKey(sinkAddress);
+      
       const outputs = [
         {
-          amount: Number(changeAmount),
+          amount: Number(txAmount),
           scriptPublicKey: {
             version: 0,
-            scriptPublicKey: scriptPubKey
+            scriptPublicKey: sinkScriptPubKey
           }
         }
       ];
 
-      // Convert OP_RETURN data to hex for payload
-      const opReturnHex = this.toHex(new TextEncoder().encode(opReturnData));
+      // Add change output if there's remaining balance
+      const remainingChange = totalInput - txAmount - fee;
+      if (remainingChange > 0) {
+        outputs.push({
+          amount: Number(remainingChange),
+          scriptPublicKey: {
+            version: 0,
+            scriptPublicKey: scriptPubKey
+          }
+        });
+      }
+
+      // Convert payload bytes to hex for transaction
+      const payloadHex = this.toHex(payloadBytes);
       
       // Transaction structure
       const txVersion = 0;
@@ -456,7 +864,7 @@ export class KaspaWallet {
           i,
           utxo,
           subnetworkId,
-          opReturnHex
+          payloadHex
         );
         
         console.log(`[Kaspa] SigHash for input ${i}:`, this.toHex(sigHash));
@@ -511,7 +919,7 @@ export class KaspaWallet {
         lockTime: 0,
         subnetworkId: subnetworkId,
         gas: 0,
-        payload: opReturnHex
+        payload: payloadHex
       };
 
       console.log('[Kaspa] Submitting transaction via REST API...');
@@ -866,6 +1274,7 @@ export class KaspaWallet {
     this.publicKey = null;
     this.address = '';
     this.connected = false;
+    this.session = null; // Clear external wallet session
   }
 }
 

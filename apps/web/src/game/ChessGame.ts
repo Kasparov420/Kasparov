@@ -19,6 +19,7 @@ export interface GameState {
   selectedSquare: Square | null;
   legalMoves: Move[];
   lastMove?: { from: Square; to: Square };
+  lastTxid?: string; // Track last move's txid for payload chaining
 }
 
 export class ChessGame {
@@ -42,6 +43,7 @@ export class ChessGame {
       selectedSquare: null,
       legalMoves: [],
       lastMove: initialState?.lastMove,
+      lastTxid: initialState?.lastTxid || '0'.repeat(64), // 32 bytes of zeros for first move
     };
 
     if (initialState?.fen) {

@@ -6,6 +6,7 @@ import { randomTheme, themeFromSeed, type Theme } from "./game/theme";
 import { kaspaService } from "./kaspa/kaspaService";
 import { indexerService } from "./indexer/indexerService";
 import { setWrpcEndpoint, getConfiguredEndpoint } from "./kaspa/wallet";
+import ChatPanel from "./ui/components/ChatPanel";
 import "./App.css";
 
 type Screen = "wallet-setup" | "welcome" | "lobby" | "playing";
@@ -231,7 +232,7 @@ function TxPopup({ type, txId, error, onClose }: {
             <p className="tx-error-msg">⚠️ {error}</p>
             <p className="tx-error-hint">
               💡 To record transactions on-chain, send some KAS to your wallet address. 
-              Even 0.01 KAS is enough for hundreds of moves!
+              Each move requires at least 0.11 KAS due to wallet minimums - send at least 0.2 KAS to play!
             </p>
           </div>
         )}
@@ -323,6 +324,7 @@ export default function App() {
   const [showPromotion, setShowPromotion] = useState(false);
   const [promotionMove, setPromotionMove] = useState<{ from: Square; to: Square } | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [walletBalance, setWalletBalance] = useState<bigint | null>(null);
   const [showMnemonic, setShowMnemonic] = useState<string | null>(null);
   const [showPrivateKeyHex, setShowPrivateKeyHex] = useState<string | null>(null);
   const [privateKeyRevealed, setPrivateKeyRevealed] = useState(false);
@@ -333,6 +335,107 @@ export default function App() {
   const [privateKeyInput, setPrivateKeyInput] = useState("");
   const [nodeEndpoint, setNodeEndpoint] = useState(getConfiguredEndpoint());
   const [txPopup, setTxPopup] = useState<{ show: boolean; txId?: string; error?: string; type: string } | null>(null);
+  const [availableWallets, setAvailableWallets] = useState<{ kasware: boolean; kastle: boolean; other: string[] } | null>(null);
+  const [chatMessages, setChatMessages] = useState<Array<{id: string, from: string, text: string, ts: number}>>([]);
+  const [chatSeq, setChatSeq] = useState(0);
+
+  // Handler functions
+  const handleConnectKasware = async () => {
+    try {
+      const session = await kaspaService.connectKasware();
+      setWalletAddress(session.address);
+      setScreen("welcome");
+    } catch (e: any) {
+      alert(`Kasware connection failed: ${e.message}`);
+    }
+  };
+
+  const handleConnectKastle = async () => {
+    try {
+      const session = await kaspaService.connectKastle();
+      setWalletAddress(session.address);
+      setScreen("welcome");
+    } catch (e: any) {
+      alert(`Kastle connection failed: ${e.message}`);
+    }
+  };
+
+  const handleCreateWallet = async () => {
+    try {
+      const mnemonic = await kaspaService.generateNewMnemonic(wordCountChoice);
+      await kaspaService.initialize(mnemonic);
+      const address = kaspaService.getAddress();
+      if (address) {
+        setWalletAddress(address);
+        setShowMnemonic(mnemonic);
+        setShowWordCountPicker(false);
+      }
+    } catch (e: any) {
+      alert(`Failed to create wallet: ${e.message}`);
+    }
+  };
+
+  const handleImportWallet = async () => {
+    try {
+      if (importMode === 'mnemonic') {
+        await kaspaService.initialize(mnemonicInput);
+      } else if (importMode === 'privateKey') {
+        await kaspaService.initializeWithPrivateKey(privateKeyInput);
+      }
+      const address = kaspaService.getAddress();
+      if (address) {
+        setWalletAddress(address);
+        setScreen("welcome");
+        setImportMode(false);
+      }
+    } catch (e: any) {
+      alert(`Import failed: ${e.message}`);
+    }
+  };
+
+  const handleImportPrivateKey = async () => {
+    try {
+      await kaspaService.initializeWithPrivateKey(privateKeyInput);
+      const address = kaspaService.getAddress();
+      if (address) {
+        setWalletAddress(address);
+        setScreen("welcome");
+        setImportMode(false);
+      }
+    } catch (e: any) {
+      alert(`Import failed: ${e.message}`);
+    }
+  };
+
+  const handleContinueAfterBackup = () => {
+    setScreen("welcome");
+  };
+
+  const handleCopyAddress = () => {
+    if (walletAddress) {
+      navigator.clipboard.writeText(walletAddress);
+      alert('Address copied to clipboard!');
+    }
+  };
+
+  const handleCopyMnemonic = async () => {
+    if (showMnemonic) {
+      try {
+        await navigator.clipboard.writeText(showMnemonic);
+        alert('Mnemonic copied to clipboard!');
+      } catch (e) {
+        console.error('Failed to copy mnemonic:', e);
+      }
+    }
+  };
+
+  const handleDisconnect = () => {
+    kaspaService.disconnect();
+    setWalletAddress(null);
+    setGame(null);
+    setGameState(null);
+    setScreen("wallet-setup");
+  };
 
   // DON'T auto-connect from localStorage - user must explicitly import their wallet
   // The stored address is just a hint, not a real connection
@@ -343,6 +446,19 @@ export default function App() {
   //     setScreen("welcome");
   //   }
   // }, []);
+
+  // Detect available wallets
+  useEffect(() => {
+    const detectWallets = async () => {
+      try {
+        const wallets = await kaspaService.detectAvailableWallets();
+        setAvailableWallets(wallets);
+      } catch (e) {
+        console.error('Failed to detect wallets:', e);
+      }
+    };
+    detectWallets();
+  }, []);
 
   // Random theme cycling in lobby
   useEffect(() => {
@@ -514,6 +630,43 @@ export default function App() {
     setTxPopup({ show: true, type: 'Creating Game...', txId: undefined, error: undefined });
 
     try {
+      // Skip balance check for now to allow testing
+      // Create game on server via API - server assigns random color
+      const indexedGame = await indexerService.createGame(walletAddress);
+      
+      // Creator is ALWAYS White
+      const myColor = "w";
+      console.log('[Create] I am White (creator). whitePub:', indexedGame.whitePub);
+      
+      const newGame = new ChessGame({
+        gameId: indexedGame.gameId,
+        myColor,
+        whitePub: indexedGame.whitePub,
+        blackPub: indexedGame.blackPub,
+        status: "lobby",
+      });
+      
+      const state = newGame.getState();
+      setGame(newGame);
+      setGameState(state);
+
+      // Publish game-init to blockchain (MANDATORY)
+      const result = await kaspaService.publishGameInit(indexedGame.gameId);
+      if (result.success && result.txId) {
+        setTxPopup({ show: true, type: '🎮 Game Created On-Chain!', txId: result.txId, error: undefined });
+      } else {
+        setTxPopup({ show: true, type: 'Failed to Create Game', txId: undefined, error: result.error || 'Transaction failed' });
+        // Reset state
+        setGame(null);
+        setGameState(null);
+        return;
+      }
+
+      // Go to lobby
+      setScreen("lobby");
+      
+    } catch (e: any) {
+
       // Create game on server via API - server assigns random color
       const indexedGame = await indexerService.createGame(walletAddress);
       
@@ -634,7 +787,7 @@ export default function App() {
     setScreen("playing");
   };
 
-  const handleSquareClick = (square: Square, piece: string | undefined) => {
+  const handleSquareClick = async (square: Square, piece: string | undefined) => {
     if (!game || !gameState) return;
     if (gameState.status !== "active") return;
     if (gameState.turn !== gameState.myColor) return;
@@ -646,25 +799,35 @@ export default function App() {
       // Get the UCI notation first
       const uci = updatedState.moves![updatedState.moves!.length - 1];
       
-      // Publish move to blockchain (MANDATORY)
-      kaspaService.publishMove(updatedState.gameId!, uci, updatedState.moves!.length).then(async (moveResult) => {
+      // Check wallet balance before publishing
+      const balance = await kaspaService.getBalance();
+      if (balance < 2000n) { // Need at least ~2000 sompi for a move
+        setTxPopup({ 
+          show: true, 
+          type: 'Insufficient Funds', 
+          txId: undefined, 
+          error: 'Need at least 0.00002 KAS for moves. Send more funds to your wallet.' 
+        });
+        return;
+      }
+      
+      // Publish move to blockchain (MANDATORY) - K-Social style with payload
+      const prevTxid = gameState.lastTxid || '0'.repeat(64);
+      kaspaService.publishChessMove(updatedState.gameId!, uci, updatedState.moves!.length, prevTxid).then(async (moveResult) => {
         if (moveResult.success && moveResult.txId) {
           console.log("Move published to DAG:", moveResult.txId);
           
           // Now update the game state and sync to server
           game.updateState(updatedState);
           const newState = game.getState();
-          setGameState(newState);
+          
+          // Update with the txid for payload chaining
+          game.updateState({ lastTxid: moveResult.txId });
+          const finalState = game.getState();
+          setGameState(finalState);
 
-          // Sync to server with txid
-          if (walletAddress) {
-            const success = await indexerService.recordMove(newState.gameId, walletAddress, uci, moveResult.txId);
-            if (success) {
-              console.log('[Move] Synced to server:', uci);
-            } else {
-              console.error('[Move] Failed to sync to server');
-            }
-          }
+          // Don't sync to server - watcher will detect the transaction and update state
+          console.log('[Move] Transaction published, watcher will detect and update state');
 
           setTxPopup({ show: true, type: '♟ Move On-Chain!', txId: moveResult.txId, error: undefined });
           
@@ -707,6 +870,38 @@ export default function App() {
     }
 
     try {
+      // Check wallet balance first - use same logic as transaction publishing
+      const utxos = await kaspaService.getUtxos();
+      if (!utxos || utxos.length === 0) {
+        setTxPopup({ 
+          show: true, 
+          type: 'Wallet Needs Funding', 
+          txId: undefined, 
+          error: 'Send at least 0.00002 KAS to your wallet address to make moves. Use any Kaspa wallet or exchange.' 
+        });
+        return false;
+      }
+
+      // Calculate total balance from UTXOs
+      let totalBalance = 0n;
+      for (const utxo of utxos) {
+        totalBalance += BigInt(utxo.utxoEntry?.amount || 0);
+      }
+
+      // Check minimum balance for moves (1 KAS)
+      const minBalance = 100000000n; // 1 KAS in sompi
+      if (totalBalance < minBalance) {
+        const needed = Number(minBalance) / 1e8;
+        const have = Number(totalBalance) / 1e8;
+        setTxPopup({ 
+          show: true, 
+          type: 'Insufficient Balance', 
+          txId: undefined, 
+          error: `Need at least ${needed.toFixed(5)} KAS to make moves. You have ${have.toFixed(8)} KAS. Send more funds to: ${walletAddress}` 
+        });
+        return false;
+      }
+
       // Use chess.js directly to validate and make the move
       const chess = game.getChess();
       const move = chess.move({
@@ -775,6 +970,38 @@ export default function App() {
   const handlePromotion = async (piece: "q" | "r" | "b" | "n") => {
     if (!game || !promotionMove) return;
     
+    // Check wallet balance first - use same logic as transaction publishing
+    const utxos = await kaspaService.getUtxos();
+    if (!utxos || utxos.length === 0) {
+      setTxPopup({ 
+        show: true, 
+        type: 'Wallet Needs Funding', 
+        txId: undefined, 
+        error: 'Send at least 0.00002 KAS to your wallet address to make moves. Use any Kaspa wallet or exchange.' 
+      });
+      return;
+    }
+
+    // Calculate total balance from UTXOs
+    let totalBalance = 0n;
+    for (const utxo of utxos) {
+      totalBalance += BigInt(utxo.utxoEntry?.amount || 0);
+    }
+
+    // Check minimum balance for moves (1 KAS)
+    const minBalance = 100000000n; // 1 KAS in sompi
+    if (totalBalance < minBalance) {
+      const needed = Number(minBalance) / 1e8;
+      const have = Number(totalBalance) / 1e8;
+      setTxPopup({ 
+        show: true, 
+        type: 'Insufficient Balance', 
+        txId: undefined, 
+        error: `Need at least ${needed.toFixed(5)} KAS to make moves. You have ${have.toFixed(8)} KAS. Send more funds to: ${walletAddress}` 
+      });
+      return;
+    }
+    
     const move = game.handlePromotion(promotionMove.from, promotionMove.to, piece);
     if (move) {
       const newState = game.getState();
@@ -803,6 +1030,78 @@ export default function App() {
     
     setShowPromotion(false);
     setPromotionMove(null);
+  };
+
+  const handleSendMessage = async (message: string) => {
+    if (!gameState?.gameId || !walletAddress) return;
+
+    // Check wallet balance first
+    const utxos = await kaspaService.getUtxos();
+    if (!utxos || utxos.length === 0) {
+      setTxPopup({ 
+        show: true, 
+        type: 'Wallet Needs Funding', 
+        txId: undefined, 
+        error: 'Send at least 0.00002 KAS to your wallet address to send chat messages. Use any Kaspa wallet or exchange.' 
+      });
+      return;
+    }
+
+    // Calculate total balance from UTXOs
+    let totalBalance = 0n;
+    for (const utxo of utxos) {
+      totalBalance += BigInt(utxo.utxoEntry?.amount || 0);
+    }
+
+    // Check minimum balance for chat (1 KAS)
+    const minBalance = 100000000n; // 1 KAS in sompi
+    if (totalBalance < minBalance) {
+      const needed = Number(minBalance) / 1e8;
+      const have = Number(totalBalance) / 1e8;
+      setTxPopup({ 
+        show: true, 
+        type: 'Insufficient Balance', 
+        txId: undefined, 
+        error: `Need at least ${needed.toFixed(5)} KAS to send chat messages. You have ${have.toFixed(8)} KAS. Send more funds to: ${walletAddress}` 
+      });
+      return;
+    }
+
+    // Show popup
+    setTxPopup({ show: true, type: 'Sending Chat...', txId: undefined, error: undefined });
+
+    try {
+      // Publish chat message to blockchain
+      const seq = chatSeq;
+      setChatSeq(prev => prev + 1);
+
+      const result = await kaspaService.publishChat(gameState.gameId, message, seq);
+      
+      if (result.success && result.txId) {
+        console.log("Chat published to DAG:", result.txId);
+        
+        // Add message to local chat
+        const newMessage = {
+          id: result.txId,
+          from: walletAddress.slice(0, 10) + '...',
+          text: message,
+          ts: Date.now()
+        };
+        setChatMessages(prev => [...prev, newMessage]);
+        
+        setTxPopup({ show: true, type: '💬 Chat On-Chain!', txId: result.txId, error: undefined });
+      } else {
+        console.error("Chat failed to publish:", result.error);
+        setTxPopup({ show: true, type: 'Chat Failed', txId: undefined, error: result.error || 'Transaction failed' });
+        // Revert sequence counter
+        setChatSeq(prev => prev - 1);
+      }
+    } catch (e: any) {
+      console.error("Chat publish error:", e);
+      setTxPopup({ show: true, type: 'Chat Failed', txId: undefined, error: 'Network error' });
+      // Revert sequence counter
+      setChatSeq(prev => prev - 1);
+    }
   };
 
   const getSquareStyles = () => {
@@ -836,88 +1135,6 @@ export default function App() {
     }
     
     return styles;
-  };
-
-  const handleCreateWallet = async () => {
-    try {
-      const mnemonic = await kaspaService.generateNewMnemonic(wordCountChoice);
-      await kaspaService.initialize(mnemonic);
-      const address = kaspaService.getAddress();
-      setWalletAddress(address);
-      setShowMnemonic(mnemonic);
-      
-      // Derive and show private key (included with both 12 and 24 word options)
-      const privKey = await derivePrivateKeyHex(mnemonic);
-      setShowPrivateKeyHex(privKey);
-      setPrivateKeyRevealed(false);
-      setShowWordCountPicker(false);
-    } catch (error) {
-      console.error('Failed to create wallet:', error);
-      alert('Failed to create wallet: ' + (error instanceof Error ? error.message : String(error)));
-    }
-  };
-
-  const handleImportWallet = async () => {
-    if (!mnemonicInput.trim()) {
-      alert("Please enter a mnemonic phrase");
-      return;
-    }
-    const words = mnemonicInput.trim().split(/\s+/);
-    if (words.length !== 12 && words.length !== 24) {
-      alert("Mnemonic must be 12 or 24 words");
-      return;
-    }
-    try {
-      await kaspaService.initialize(mnemonicInput.trim());
-      const address = kaspaService.getAddress();
-      setWalletAddress(address);
-      setScreen("welcome");
-    } catch (error) {
-      console.error("Mnemonic import error:", error);
-      alert("Failed to import wallet: " + (error instanceof Error ? error.message : String(error)));
-    }
-  };
-
-  const handleImportPrivateKey = async () => {
-    if (!privateKeyInput.trim()) {
-      alert("Please enter a private key");
-      return;
-    }
-    try {
-      await kaspaService.initializeWithPrivateKey(privateKeyInput.trim());
-      const address = kaspaService.getAddress();
-      setWalletAddress(address);
-      setScreen("welcome");
-    } catch (error) {
-      alert("Invalid private key: " + (error instanceof Error ? error.message : String(error)));
-    }
-  };
-
-  const handleDisconnect = () => {
-    localStorage.removeItem('kasparov-wallet-address');
-    setWalletAddress(null);
-    setScreen('wallet-setup');
-  };
-
-  const handleContinueAfterBackup = () => {
-    setShowMnemonic(null);
-    setShowPrivateKeyHex(null);
-    setPrivateKeyRevealed(false);
-    setScreen("welcome");
-  };
-
-  const handleCopyMnemonic = async () => {
-    if (showMnemonic) {
-      await navigator.clipboard.writeText(showMnemonic);
-      alert('Recovery phrase copied to clipboard!');
-    }
-  };
-
-  const handleCopyAddress = async () => {
-    if (walletAddress) {
-      await navigator.clipboard.writeText(walletAddress);
-      alert('Address copied!');
-    }
   };
 
   if (screen === "wallet-setup") {
@@ -991,6 +1208,15 @@ export default function App() {
               <code className="wallet-address" onClick={handleCopyAddress} title="Click to copy">
                 {walletAddress}
               </code>
+              <p className="wallet-label">Balance</p>
+              <code className="wallet-balance">
+                {walletBalance !== null ? `${(Number(walletBalance) / 1e8).toFixed(8)} KAS` : 'Loading...'}
+              </code>
+              {walletBalance !== null && walletBalance === 0n && (
+                <p className="balance-warning">
+                  ⚠️ Send Kaspa to this address to enable transactions
+                </p>
+              )}
             </div>
             <button onClick={handleContinueAfterBackup} className="btn btn-primary btn-large">
               ♔ Enter the Arena
@@ -1138,6 +1364,32 @@ export default function App() {
           
           {!importMode ? (
             <div className="wallet-options">
+              <div className="section-label">
+                <span>🔗</span> Connect External Wallet <span>🔗</span>
+              </div>
+              
+              {availableWallets?.kasware && (
+                <button onClick={handleConnectKasware} className="btn btn-primary btn-large">
+                  <span className="btn-icon">🦊</span> Connect Kasware
+                </button>
+              )}
+              
+              {availableWallets?.kastle && (
+                <button onClick={handleConnectKastle} className="btn btn-primary btn-large">
+                  <span className="btn-icon">🦊</span> Connect Kastle
+                </button>
+              )}
+              
+              {(!availableWallets?.kasware && !availableWallets?.kastle) && (
+                <div className="wallet-info-box">
+                  <p>No external wallets detected. Install <a href="https://kasware.wallet" target="_blank" rel="noopener noreferrer">Kasware</a> or <a href="https://kastle.app" target="_blank" rel="noopener noreferrer">Kastle</a> to connect.</p>
+                </div>
+              )}
+              
+              <div className="divider">
+                <span>or use internal wallet</span>
+              </div>
+              
               <div className="section-label">
                 <span>♟</span> Get Started <span>♟</span>
               </div>
@@ -1544,6 +1796,12 @@ export default function App() {
               <div ref={(el) => el?.scrollIntoView({ behavior: 'smooth' })} />
             </div>
           </div>
+
+          <ChatPanel 
+            game={{ id: gameState.gameId, messages: chatMessages }}
+            session={walletAddress ? { address: walletAddress } : null}
+            onSendMessage={handleSendMessage}
+          />
         </div>
 
         {gameState.status === "ended" && (

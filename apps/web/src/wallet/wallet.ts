@@ -169,9 +169,9 @@ function buildChatPayloads(gameId: string, message: string) {
 
 // Minimal tx amounts to fixed address
 export const GAME_CREATE_ADDRESS = "kaspa:qr6vs4wy4m3za6mzchj05x3902qrtklkyn8s0u8g2gv6mrctzdzx7pnhqxka2";
-export const GAME_CREATE_AMOUNT = 20000000; // 0.2 KAS
-export const MOVE_TX_AMOUNT = 20000000; // 0.2 KAS
-export const CHAT_TX_AMOUNT = 20000000; // 0.2 KAS
+export const GAME_CREATE_AMOUNT = 100000000; // 1 KAS
+export const MOVE_TX_AMOUNT = 100000000; // 1 KAS
+export const CHAT_TX_AMOUNT = 100000000; // 1 KAS
 
 // Send with a single wallet API variant to avoid multiple signature prompts
 async function sendWithWallet(provider: any, to: string, amount: number) {

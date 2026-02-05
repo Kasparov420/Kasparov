@@ -496,7 +496,6 @@ export default function WalletModal({ open, onClose, onConnectKasware, onConnect
               <label className="wm-input-label">Recovery Phrase (12 or 24 words)</label>
               <textarea 
                 className="wm-textarea"
-                placeholder="Enter your seed phrase, words separated by spaces..."
                 value={importMnemonic}
                 onChange={(e) => setImportMnemonic(e.target.value)}
                 rows={4}

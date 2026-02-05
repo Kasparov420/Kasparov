@@ -12,9 +12,14 @@ import {
   getWallet, 
   generateMnemonic as genMnemonic,
   validateMnemonic as valMnemonic,
-  validatePrivateKey as valPrivKey
+  validatePrivateKey as valPrivKey,
+  connectKasware,
+  connectKastle,
+  detectWallets,
+  type WalletSession
 } from './wallet';
 import type { GameEvent } from './eventCodec';
+import { encodeMovePayload, type MovePayload } from './payload';
 
 export interface TxResult {
   success: boolean;
@@ -55,10 +60,42 @@ class KaspaService {
   }
 
   /**
-   * Validate private key (64-char hex)
+   * Detect available wallets
    */
-  validatePrivateKey(key: string): boolean {
-    return valPrivKey(key);
+  async detectAvailableWallets(): Promise<{ kasware: boolean; kastle: boolean; other: string[] }> {
+    return detectWallets();
+  }
+
+  /**
+   * Connect to Kasware wallet
+   */
+  async connectKasware(): Promise<WalletSession> {
+    const session = await connectKasware();
+    await this.wallet.connectToWallet(session);
+    
+    // Store address hint
+    const address = this.wallet.getAddress();
+    if (address) {
+      localStorage.setItem('kasparov-wallet-address', address);
+    }
+    
+    return session;
+  }
+
+  /**
+   * Connect to Kastle wallet
+   */
+  async connectKastle(): Promise<WalletSession> {
+    const session = await connectKastle();
+    await this.wallet.connectToWallet(session);
+    
+    // Store address hint
+    const address = this.wallet.getAddress();
+    if (address) {
+      localStorage.setItem('kasparov-wallet-address', address);
+    }
+    
+    return session;
   }
 
   /**
@@ -109,6 +146,13 @@ class KaspaService {
   }
 
   /**
+   * Get wallet UTXOs
+   */
+  async getUtxos(): Promise<any[]> {
+    return this.wallet.getUtxos();
+  }
+
+  /**
    * Disconnect and clear wallet
    */
   disconnect(): void {
@@ -143,11 +187,26 @@ class KaspaService {
   }
 
   /**
-   * Publish chess move
+   * Publish chess move with custom payload format (K-Social style)
    */
-  async publishMove(gameId: string, uci: string, ply: number): Promise<TxResult> {
-    const event: GameEvent = { type: 'move', gameId, ply, uci };
-    return this.wallet.publishEvent(event);
+  async publishChessMove(gameId: string, uci: string, ply: number, prevTxid: string = ''): Promise<TxResult> {
+    const payload: MovePayload = {
+      type: 'move',
+      gameId,
+      ply,
+      uci,
+      prevTxid,
+    };
+
+    const payloadBytes = encodeMovePayload(payload);
+    return this.wallet.publishWithPayload(payloadBytes);
+  }
+
+  /**
+   * Alias for publishChessMove for backward compatibility
+   */
+  async publishMove(gameId: string, uci: string, ply: number, prevTxid: string = ''): Promise<TxResult> {
+    return this.publishChessMove(gameId, uci, ply, prevTxid);
   }
 
   /**

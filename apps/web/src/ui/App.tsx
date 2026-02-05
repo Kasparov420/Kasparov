@@ -29,6 +29,7 @@ export default function App() {
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [theme, setTheme] = useState<Theme>(() => randomTheme())
   const [screen, setScreen] = useState<'lobby' | 'playing'>('lobby')
+  const [balance, setBalance] = useState<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
   // Check for existing internal wallet on mount
@@ -46,6 +47,25 @@ export default function App() {
       setTheme(themeFromSeed(game.themeSeed))
     }
   }, [game?.status, game?.themeSeed])
+
+  // Fetch balance when session changes
+  useEffect(() => {
+    const fetchBalance = async () => {
+      if (!session) {
+        setBalance(null)
+        return
+      }
+      try {
+        const bal = await kaspaService.getBalance()
+        const kasBalance = Number(bal) / 100000000
+        setBalance(kasBalance.toFixed(2))
+      } catch (e) {
+        console.error('Failed to fetch balance:', e)
+        setBalance(null)
+      }
+    }
+    fetchBalance()
+  }, [session])
 
   // Poll for game updates (Vercel doesn't support WebSocket)
   useEffect(() => {
@@ -265,7 +285,7 @@ export default function App() {
   return (
     <div className="app">
       <KaspaStatsBar />
-      <TopBar session={session} onConnect={() => setShowWalletModal(true)} onDisconnect={onDisconnect} />
+      <TopBar session={session} balance={balance} onConnect={() => setShowWalletModal(true)} onDisconnect={onDisconnect} />
       <main className="mainLayout">
         <div className="leftCol">
           {game ? (

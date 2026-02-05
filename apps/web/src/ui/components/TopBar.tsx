@@ -1,8 +1,9 @@
 import React from 'react'
 import { Wallet, LogOut, Crown } from 'lucide-react'
 
-export default function TopBar({ session, onConnect, onDisconnect }: {
+export default function TopBar({ session, balance, onConnect, onDisconnect }: {
   session: any
+  balance: string | null
   onConnect: () => void
   onDisconnect: () => void
 }) {
@@ -22,6 +23,7 @@ export default function TopBar({ session, onConnect, onDisconnect }: {
           <div className="pill connected">
             <div className="status-indicator" />
             <span className="addr">{short}</span>
+            {balance && <span className="balance">• {balance} KAS</span>}
             <button 
               className="iconBtn" 
               onClick={onDisconnect} 
